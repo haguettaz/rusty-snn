@@ -1,4 +1,4 @@
-# ⚡️piking Neural Network (SNN) - A Rust Implementation 🦀 
+# ⚡️piking Neural Network - A Rust Implementation 🦀 
 
 We consider (continuous-time) spiking neural networks and their use as robust memorizers of arbitrary spike trains. 
 For details, we refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166). 
@@ -10,15 +10,15 @@ This language was designed with several key goals in mind, which revolve around 
 
 ### Memory Safety
 
-
+...
 
 ### Zero-cost Abstractions
 
-
+...
 
 ### Fearless Concurrency
 
-Message passing: *"Do not communicate by sharing memory; instead, share memory by communicating."*
+<!-- Message passing: *"Do not communicate by sharing memory; instead, share memory by communicating."* -->
 
 ## References
 
@@ -26,6 +26,7 @@ Message passing: *"Do not communicate by sharing memory; instead, share memory b
 * [Klabnik and Nichols, *The Rust Programming Language*, 2021.](https://doc.rust-lang.org/book/)
 
 [^1]: Read as concurrency or parallelism.
+
 <!-- 
 ### Prior Works
 - Murer, *A New Perspective on Memorization in Recurrent Networks of Spiking Neurons*. Ph.D. dissertation, No. 28166, ETH Zürich, 2022.
