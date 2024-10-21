@@ -1,6 +1,8 @@
 [package]
-name = "rust-rsnn"
+name = "r-snn"
 version = "0.1.0"
 edition = "2021"
+desription = "A spiking neural network library written in Rust for research purposes."
+license = "MIT OR Apache-2.0"
 
 [dependencies]
