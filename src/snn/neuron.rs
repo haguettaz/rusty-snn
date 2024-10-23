@@ -6,7 +6,9 @@
 
 // mod super::Input::Input;
 use super::connection::Input;
+use serde::{Serialize, Deserialize};
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Neuron {
     id: usize,
     threshold: f64,
@@ -25,19 +27,33 @@ impl Neuron {
         }
     }
 
-    // pub fn add_input(&mut self, input: &Input) {
-    //     self.inputs.push(input);
-    // }
-
-    // pub fn add_output(&mut self, output: &Input) {
-    //     self.outputs.push(output);
-    // }
-
     pub fn firing_times(&self) -> &Vec<f64> {
         &self.firing_times
     }
 
     pub fn fire(&mut self, time: f64) {
         self.firing_times.push(time);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_neuron() {
+        let neuron = Neuron::new(0, 1.0, Vec::new());
+        assert_eq!(neuron.id, 0);
+        assert_eq!(neuron.threshold, 1.0);
+        assert_eq!(neuron.firing_times.len(), 0);
+    }
+
+    #[test]
+    fn test_fire() {
+        let mut neuron = Neuron::new(0, 1.0, Vec::new());
+        neuron.fire(0.0);
+        assert_eq!(neuron.firing_times.len(), 1);
+        neuron.fire(1.45);
+        assert_eq!(neuron.firing_times.len(), 2);
     }
 }
