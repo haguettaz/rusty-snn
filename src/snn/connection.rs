@@ -3,19 +3,23 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Input {
     source_id: usize,
-    delay: f64,
     weight: f64,
+    delay: f64,
     kernel: Kernel,
     firing_times: Vec<f64>,
 }
 
 impl Input {
-    pub fn new(source_id: usize, delay: f64, weight: f64, order: i32, beta: f64) -> Input {
+    pub fn build(source_id: usize, weight: f64, delay: f64, order: i32, beta: f64) -> Input {
+        if delay <= 0.0 {
+            panic!("Delay must be positive.");
+        }
+
         Input {
             source_id: source_id,
-            delay: delay,
             weight: weight,
-            kernel: Kernel::new(order, beta),
+            delay: delay,
+            kernel: Kernel::build(order, beta),
             firing_times: Vec::new(),
         }
     }
@@ -34,6 +38,11 @@ impl Input {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+/// Implements a normalized function kernel for synaptic response.
+/// The kernel is defined as: γ * t^n * exp(-βt) for t > 0 where:
+/// - n is the order
+/// - β (beta) is the time constant
+/// - γ (gamma) is the normalization factor
 pub struct Kernel {
     order: i32,
     beta: f64,
@@ -41,8 +50,14 @@ pub struct Kernel {
 }
 
 impl Kernel {
-    // Creates a new (energy-normalized) kernel with a given delay, weight, order, and beta (=time constant).
-    pub fn new(order: i32, beta: f64) -> Kernel {
+    pub fn build(order: i32, beta: f64) -> Kernel {
+        if order <= 0 {
+            panic!("Order must be positive.");
+        }
+        if beta <= 0.0 {
+            panic!("Beta must be positive.");
+        }
+
         let ln_gamma2: f64 = (1..=2 * order).fold(
             ((2 * order + 1) as f64) * (2.0 * beta as f64).ln(),
             |acc, n| acc - (n as f64).ln(),
@@ -64,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_input() {
-        let input = Input::new(0, 1.0, 1.0, 1, 1.0);
+        let input = Input::build(0, 1.0, 1.0, 1, 1.0);
         assert_eq!(input.source_id, 0);
         assert_eq!(input.delay, 1.0);
         assert_eq!(input.weight, 1.0);
@@ -74,8 +89,14 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Delay must be positive.")]
+    fn test_input_rejects_negative_delay() {
+        Input::build(0, 1.0, -1.0, 1, 1.0);
+    }
+
+    #[test]
     fn test_kernel() {
-        let kernel = Kernel::new(1, 1.0);
+        let kernel = Kernel::build(1, 1.0);
         assert_eq!(kernel.order, 1);
         assert_eq!(kernel.beta, 1.0);
         assert!((kernel.gamma - 2.0).abs() < 1e-10);
@@ -83,14 +104,14 @@ mod tests {
 
     #[test]
     fn test_kernel_apply() {
-        let kernel = Kernel::new(1, 1.0);
+        let kernel = Kernel::build(1, 1.0);
         assert!((kernel.apply(0.0)).abs() < 1e-10);
         assert!((kernel.apply(1.0) - 2.0 / E).abs() < 1e-10);
     }
 
     #[test]
     fn test_input_apply() {
-        let mut input = Input::new(0, 1.0, 1.0, 1, 1.0);
+        let mut input = Input::build(0, 1.0, 1.0, 1, 1.0);
         input.add_firing_time(0.0);
         input.add_firing_time(1.0);
         assert!((input.apply(0.0)).abs() < 1e-10);

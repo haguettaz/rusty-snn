@@ -1,23 +1,32 @@
-// Neurons are the basic building blocks of the network.
-// They are connected to each other through Inputs.
-// Neurons have a threshold, which is the value that their potential must reach in order to fire.
-// Neurons have a potential, which is the value that is accumulated over time.
-// Should it be a struct or a trait object?
+//! A Neuron is a basic building block of the spiking neural network.
+//! 
+//! # Properties
+//! * Connected to other neurons through Inputs
+//! * Has a threshold that potential must reach to fire
+//! * Accumulates potential over time
 
-// mod super::Input::Input;
 use super::connection::Input;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Neuron {
+    /// Unique identifier for the neuron
     id: usize,
+    /// Minimum potential required for the neuron to fire
     threshold: f64,
+    /// Historical record of times when the neuron fired
     firing_times: Vec<f64>,
+    /// Collection of inputs connected to this neuron
     inputs: Vec<Input> // or slice?
 }
 
 impl Neuron {
-    ///
+    /// Creates a new Neuron with the specified parameters.
+    /// 
+    /// # Arguments
+    /// * `id` - Unique identifier for the neuron
+    /// * `threshold` - Minimum potential required for the neuron to fire
+    /// * `inputs` - Collection of inputs to this neuron
     pub fn new(id:usize, threshold: f64, inputs: Vec<Input>) -> Neuron {
         Neuron {
             id: id,
@@ -29,6 +38,13 @@ impl Neuron {
 
     pub fn firing_times(&self) -> &Vec<f64> {
         &self.firing_times
+    }
+
+    pub fn potential(&self, time: f64) -> f64 {
+        self.inputs
+            .iter()
+            .map(|input| input.apply(time))
+            .sum()
     }
 
     pub fn fire(&mut self, time: f64) {
@@ -55,5 +71,13 @@ mod tests {
         assert_eq!(neuron.firing_times.len(), 1);
         neuron.fire(1.45);
         assert_eq!(neuron.firing_times.len(), 2);
+    }
+
+    #[test]
+    fn test_firing_times_accessor() {
+        let mut neuron = Neuron::new(0, 1.0, Vec::new());
+        neuron.fire(1.0);
+        neuron.fire(2.0);
+        assert_eq!(neuron.firing_times(), &vec![1.0, 2.0]);
     }
 }
