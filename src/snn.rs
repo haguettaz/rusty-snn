@@ -1,1 +1,3 @@
-pub mod snn;
+pub mod network;
+pub mod neuron;
+pub mod connection;

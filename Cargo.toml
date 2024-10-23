@@ -1,8 +1,10 @@
 [package]
-name = "r-snn"
+name = "rusty_snn"
 version = "0.1.0"
 edition = "2021"
 desription = "A spiking neural network library written in Rust for research purposes."
 license = "MIT OR Apache-2.0"
+authors = ["Hugo Aguettaz <aguettaz@isi.ee.ethz.ch>"]
 
 [dependencies]
+rand = "0.8.5"
