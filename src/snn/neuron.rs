@@ -5,7 +5,7 @@
 //! * Has a threshold that potential must reach to fire
 //! * Accumulates potential over time
 
-use super::connection::Input;
+use super::input::Input;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize)]

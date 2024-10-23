@@ -1,10 +1,9 @@
-use rand::distributions::Uniform;
-use rusty_snn::snn::network::Network;
+use rusty_snn::snn::network::{Network, BalancedType};
 use std::ops::Range;
 use std::fs;
 
 const NUM_NEURONS: usize = 100;
-const NUM_INPUTS: usize = 100;
+const NUM_CONNECTIONS: usize = 10_000;
 const WEIGHT_RANGE: Range<f64> = -1.0..1.0;
 const DELAY_RANGE: Range<f64> = 1.0..10.0;
 const ORDER_RANGE: Range<i32> = 1..16;
@@ -15,13 +14,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all("data")?;
 
     // Create a new random network
-    let network = Network::new_random_fin(
+    let network = Network::new_random(
         NUM_NEURONS,
-        NUM_INPUTS,
-        Uniform::from(WEIGHT_RANGE),
-        Uniform::from(DELAY_RANGE),
-        Uniform::from(ORDER_RANGE),
-        Uniform::from(BETA_RANGE)
+        NUM_CONNECTIONS,
+        WEIGHT_RANGE,
+        DELAY_RANGE,
+        ORDER_RANGE,
+        BETA_RANGE,
+        BalancedType::Unbalanced,
     );
 
     // Save network 
