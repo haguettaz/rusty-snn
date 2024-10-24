@@ -1,1 +1,1 @@
-pub mod snn;
+pub mod network;

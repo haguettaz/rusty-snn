@@ -27,7 +27,7 @@ impl Network {
         order_range: Range<i32>,
         beta_range: Range<f64>,
         rng: &mut impl Rng,
-    ) -> Network {
+    ) -> Result<Network, &'static str> {
         let mut neurons: Vec<Neuron> = (0..num_neurons)
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
@@ -44,10 +44,10 @@ impl Network {
             let delay = delay_dist.sample(rng);
             let order = order_dist.sample(rng);
             let beta = beta_dist.sample(rng);
-            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta));
+            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
 
-        Network { neurons }
+        Ok(Network { neurons })
     }
 
     /// Creates a new random Network with a specific number of neurons and connections.
@@ -61,7 +61,11 @@ impl Network {
         order_range: Range<i32>,
         beta_range: Range<f64>,
         rng: &mut impl Rng,
-    ) -> Network {
+    ) -> Result<Network, &'static str> {
+        if num_connections % num_neurons != 0 {
+            return Err("Number of connections must be divisible by number of neurons for the network to be perfectly out-balanced.");
+        }
+
         let mut neurons: Vec<Neuron> = (0..num_neurons)
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
@@ -78,10 +82,10 @@ impl Network {
             let delay = delay_dist.sample(rng);
             let order = order_dist.sample(rng);
             let beta = beta_dist.sample(rng);
-            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta));
+            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
 
-        Network { neurons }
+        Ok(Network { neurons })
     }
 
     /// Creates a new random Network with a specific number of neurons and connections.
@@ -95,7 +99,11 @@ impl Network {
         order_range: Range<i32>,
         beta_range: Range<f64>,
         rng: &mut impl Rng,
-    ) -> Network {
+    ) -> Result<Network, &'static str> {
+        if num_connections % num_neurons != 0 {
+            return Err("Number of connections must be divisible by number of neurons for the network to be perfectly in-balanced.");
+        }
+
         let mut neurons: Vec<Neuron> = (0..num_neurons)
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
@@ -112,10 +120,10 @@ impl Network {
             let delay = delay_dist.sample(rng);
             let order = order_dist.sample(rng);
             let beta = beta_dist.sample(rng);
-            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta));
+            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
 
-        Network { neurons }
+        Ok(Network { neurons })
     }
 
     /// Creates a new random Network with a specific number of neurons and connections.
@@ -129,9 +137,9 @@ impl Network {
         order_range: Range<i32>,
         beta_range: Range<f64>,
         rng: &mut impl Rng,
-    ) -> Network {
+    ) -> Result<Network, &'static str> {
         if num_connections % num_neurons != 0 {
-            panic!("Number of connections must be divisible by number of neurons for the network to be perfectly in/out balanced.");
+            return Err("Number of connections must be divisible by number of neurons for the network to be perfectly in/out-balanced.");
         }
 
         let mut neurons: Vec<Neuron> = (0..num_neurons)
@@ -155,9 +163,9 @@ impl Network {
             let delay = delay_dist.sample(rng);
             let order = order_dist.sample(rng);
             let beta = beta_dist.sample(rng);
-            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta));
+            neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
-        Network { neurons }
+        Ok(Network { neurons })
     }
 
     pub fn save_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
@@ -189,125 +197,31 @@ mod tests {
     const ORDER_RANGE: Range<i32> = 1..16;
     const BETA_RANGE: Range<f64> = 0.5..2.0;
 
-    #[test]
-    fn test_unbalanced_network() {
-        let seed = [1; 32];
-        let mut rng = StdRng::from_seed(seed);
-
-        let network = Network::new_random(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
-            &mut rng,
-        );
-
-        assert_eq!(network.neurons.len(), NUM_NEURONS);
-        assert_eq!(
-            network.neurons.iter().flat_map(|n| n.inputs()).count(),
-            NUM_CONNECTIONS
-        );
-        for id in 0..NUM_NEURONS {
-            assert_eq!(network.neurons[id].id(), id);
-            for input in network.neurons[id].inputs().iter() {
-                assert!(input.source_id() < NUM_NEURONS);
-                assert!(input.weight() >= WEIGHT_RANGE.start);
-                assert!(input.weight() < WEIGHT_RANGE.end);
-                assert!(input.delay() >= DELAY_RANGE.start);
-                assert!(input.delay() < DELAY_RANGE.end);
-                assert!(input.kernel().order() >= ORDER_RANGE.start);
-                assert!(input.kernel().order() < ORDER_RANGE.end);
-                assert!(input.kernel().beta() >= BETA_RANGE.start);
-                assert!(input.kernel().beta() < BETA_RANGE.end);
-            }
-        }
-    }
-
-    #[test]
-    fn test_in_out_balanced_network() {
-        let seed = [1; 32];
-        let mut rng = StdRng::from_seed(seed);
-
-        let network = Network::new_random_fin_fout(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
-            &mut rng,
-        );
-
-        assert_eq!(network.neurons.len(), NUM_NEURONS);
-        for id in 0..NUM_NEURONS {
-            assert_eq!(network.neurons[id].id(), id);
+    fn validate_num_outputs(network: &Network, num_outputs: usize) {
+        for neuron in network.neurons.iter(){
             assert_eq!(
                 network
                     .neurons
                     .iter()
                     .flat_map(|n| n.inputs())
-                    .filter(|i| i.source_id() == id)
+                    .filter(|i| i.source_id() == neuron.id())
                     .count(),
-                NUM_CONNECTIONS / NUM_NEURONS
+                num_outputs
             );
+        }
+    }
+
+    fn validate_num_inputs(network: &Network, num_inputs: usize) {
+        for neuron in network.neurons.iter(){
             assert_eq!(
-                network.neurons[id].inputs().len(),
-                NUM_CONNECTIONS / NUM_NEURONS
+                neuron.inputs().len(),
+                num_inputs
             );
-            for input in network.neurons[id].inputs().iter() {
-                assert!(input.source_id() < NUM_NEURONS);
-                assert!(input.weight() >= WEIGHT_RANGE.start);
-                assert!(input.weight() < WEIGHT_RANGE.end);
-                assert!(input.delay() >= DELAY_RANGE.start);
-                assert!(input.delay() < DELAY_RANGE.end);
-                assert!(input.kernel().order() >= ORDER_RANGE.start);
-                assert!(input.kernel().order() < ORDER_RANGE.end);
-                assert!(input.kernel().beta() >= BETA_RANGE.start);
-                assert!(input.kernel().beta() < BETA_RANGE.end);
-            }
         }
     }
 
     #[test]
-    fn test_in_balanced_network() {
-        let seed = [1; 32];
-        let mut rng = StdRng::from_seed(seed);
-
-        let network = Network::new_random_fin(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
-            &mut rng,
-        );
-
-        assert_eq!(network.neurons.len(), NUM_NEURONS);
-        for id in 0..NUM_NEURONS {
-            assert_eq!(network.neurons[id].id(), id);
-            assert_eq!(
-                network.neurons[id].inputs().len(),
-                NUM_CONNECTIONS / NUM_NEURONS
-            );
-            for input in network.neurons[id].inputs().iter() {
-                assert!(input.source_id() < NUM_NEURONS);
-                assert!(input.weight() >= WEIGHT_RANGE.start);
-                assert!(input.weight() < WEIGHT_RANGE.end);
-                assert!(input.delay() >= DELAY_RANGE.start);
-                assert!(input.delay() < DELAY_RANGE.end);
-                assert!(input.kernel().order() >= ORDER_RANGE.start);
-                assert!(input.kernel().order() < ORDER_RANGE.end);
-                assert!(input.kernel().beta() >= BETA_RANGE.start);
-                assert!(input.kernel().beta() < BETA_RANGE.end);
-            }
-        }
-    }
-
-    #[test]
-    fn test_out_balanced_network() {
+    fn test_network_connectivity() {
         let seed = [1; 32];
         let mut rng = StdRng::from_seed(seed);
 
@@ -319,32 +233,34 @@ mod tests {
             ORDER_RANGE,
             BETA_RANGE,
             &mut rng,
-        );
+        )
+        .unwrap();
+        validate_num_outputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
 
-        assert_eq!(network.neurons.len(), NUM_NEURONS);
-        for id in 0..NUM_NEURONS {
-            assert_eq!(network.neurons[id].id(), id);
-            assert_eq!(
-                network
-                    .neurons
-                    .iter()
-                    .flat_map(|n| n.inputs())
-                    .filter(|i| i.source_id() == id)
-                    .count(),
-                NUM_CONNECTIONS / NUM_NEURONS
-            );
-            for input in network.neurons[id].inputs().iter() {
-                assert!(input.source_id() < NUM_NEURONS);
-                assert!(input.weight() >= WEIGHT_RANGE.start);
-                assert!(input.weight() < WEIGHT_RANGE.end);
-                assert!(input.delay() >= DELAY_RANGE.start);
-                assert!(input.delay() < DELAY_RANGE.end);
-                assert!(input.kernel().order() >= ORDER_RANGE.start);
-                assert!(input.kernel().order() < ORDER_RANGE.end);
-                assert!(input.kernel().beta() >= BETA_RANGE.start);
-                assert!(input.kernel().beta() < BETA_RANGE.end);
-            }
-        }
+        let network = Network::new_random_fin(
+            NUM_NEURONS,
+            NUM_CONNECTIONS,
+            WEIGHT_RANGE,
+            DELAY_RANGE,
+            ORDER_RANGE,
+            BETA_RANGE,
+            &mut rng,
+        )
+        .unwrap();
+        validate_num_inputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
+
+        let network = Network::new_random_fin_fout(
+            NUM_NEURONS,
+            NUM_CONNECTIONS,
+            WEIGHT_RANGE,
+            DELAY_RANGE,
+            ORDER_RANGE,
+            BETA_RANGE,
+            &mut rng,
+        )
+        .unwrap();
+        validate_num_inputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
+        validate_num_outputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
     }
 
     #[test]
@@ -359,7 +275,8 @@ mod tests {
             ORDER_RANGE,
             BETA_RANGE,
             &mut rng,
-        );
+        )
+        .unwrap();
         let cloned_network = network.clone();
         assert_eq!(cloned_network, network);
     }

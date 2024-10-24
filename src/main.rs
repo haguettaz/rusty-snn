@@ -1,4 +1,4 @@
-use rusty_snn::snn::network::Network;
+use rusty_snn::network::network::Network;
 use std::ops::Range;
 use std::fs;
 use rand::{rngs::StdRng, SeedableRng};
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ORDER_RANGE,
         BETA_RANGE,
         &mut rng,
-    );
+    ).unwrap();
 
     // Save network 
     network.save_to("data/network.json").map_err(|e| format!("Failed to save network: {}", e))?;
