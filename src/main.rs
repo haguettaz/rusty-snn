@@ -1,4 +1,4 @@
-use rusty_snn::snn::network::{Network, BalancedType};
+use rusty_snn::snn::network::Network;
 use std::ops::Range;
 use std::fs;
 use rand::{rngs::StdRng, SeedableRng};
@@ -26,7 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DELAY_RANGE,
         ORDER_RANGE,
         BETA_RANGE,
-        BalancedType::InOutBalanced,
         &mut rng,
     );
 

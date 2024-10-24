@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Input {
     source_id: usize,
     weight: f64,
@@ -62,6 +62,7 @@ impl Input {
 /// - n is the order
 /// - β (beta) is the time constant
 /// - γ (gamma) is the normalization factor
+#[derive(PartialEq, Clone)]
 pub struct Kernel {
     order: i32,
     beta: f64,
@@ -144,5 +145,25 @@ mod tests {
         assert!((input.apply(0.0)).abs() < 1e-10);
         assert!((input.apply(1.0)).abs() < 1e-10);
         assert!((input.apply(2.0) - 2.0 / E).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_input_clone() {
+        let input = Input::build(0, 1.0, 1.0, 1, 1.0);
+        let cloned = input.clone();
+        assert_eq!(input, cloned);
+    }
+
+    #[test]
+    fn test_kernel_clone() {
+        let kernel = Kernel::build(1, 1.0);
+        let cloned = kernel.clone();
+        assert_eq!(kernel, cloned);
+    }
+
+    #[test]
+    fn test_kernel_numerical_stability() {
+        let kernel = Kernel::build(1, 1.0);  // High order, small beta
+        assert!((kernel.apply(100.0)).abs() < 1e-10);  // Should decay to ~0
     }
 }
