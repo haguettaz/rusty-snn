@@ -1,9 +1,4 @@
 //! A Neuron is a basic building block of the spiking neural network.
-//! 
-//! # Properties
-//! * Connected to other neurons through Inputs
-//! * Has a threshold that potential must reach to fire
-//! * Accumulates potential over time
 
 use super::input::Input;
 use serde::{Serialize, Deserialize};
