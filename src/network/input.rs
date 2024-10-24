@@ -28,9 +28,9 @@ impl Input {
         }
 
         Ok(Input {
-            source_id: source_id,
-            weight: weight,
-            delay: delay,
+            source_id,
+            weight,
+            delay,
             kernel: Kernel::build(order, beta)?,
             firing_times: Vec::new(),
         })

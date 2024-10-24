@@ -60,7 +60,7 @@ impl Neuron {
         self.inputs.iter().map(|input| input.apply(time)).sum()
     }
 
-    pub fn fire(&mut self, time: f64) {
+    pub fn add_firing_time(&mut self, time: f64) {
         self.firing_times.push(time);
     }
 }
@@ -78,19 +78,19 @@ mod tests {
     }
 
     #[test]
-    fn test_fire() {
+    fn test_add_firing_time() {
         let mut neuron = Neuron::new(0, 1.0, Vec::new());
-        neuron.fire(0.0);
+        neuron.add_firing_time(0.0);
         assert_eq!(neuron.firing_times.len(), 1);
-        neuron.fire(1.45);
+        neuron.add_firing_time(1.45);
         assert_eq!(neuron.firing_times.len(), 2);
     }
 
     #[test]
     fn test_firing_times_accessor() {
         let mut neuron = Neuron::new(0, 1.0, Vec::new());
-        neuron.fire(1.0);
-        neuron.fire(2.0);
+        neuron.add_firing_time(1.0);
+        neuron.add_firing_time(2.0);
         assert_eq!(neuron.firing_times(), &vec![1.0, 2.0]);
     }
 
