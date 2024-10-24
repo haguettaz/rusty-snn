@@ -36,6 +36,18 @@ impl Neuron {
         }
     }
 
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn add_input(&mut self, input: Input) {
+        self.inputs.push(input);
+    }
+
+    pub fn inputs(&self) -> &Vec<Input> {
+        &self.inputs
+    }
+
     pub fn firing_times(&self) -> &Vec<f64> {
         &self.firing_times
     }

@@ -1,6 +1,7 @@
 use rusty_snn::snn::network::{Network, BalancedType};
 use std::ops::Range;
 use std::fs;
+use rand::{rngs::StdRng, SeedableRng};
 
 const NUM_NEURONS: usize = 100;
 const NUM_CONNECTIONS: usize = 10_000;
@@ -13,6 +14,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure data directory exists
     fs::create_dir_all("data")?;
 
+    // Set seed for reproducibility
+    let seed  = [1;32];
+    let mut rng = StdRng::from_seed(seed);
+
     // Create a new random network
     let network = Network::new_random(
         NUM_NEURONS,
@@ -21,7 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DELAY_RANGE,
         ORDER_RANGE,
         BETA_RANGE,
-        BalancedType::Unbalanced,
+        BalancedType::InOutBalanced,
+        &mut rng,
     );
 
     // Save network 

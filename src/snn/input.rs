@@ -34,6 +34,26 @@ impl Input {
             .map(|ft| self.weight * self.kernel.apply(time - ft - self.delay))
             .sum()
     }
+
+    pub fn firing_times(&self) -> &Vec<f64> {
+        &self.firing_times
+    }
+
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    pub fn delay(&self) -> f64 {
+        self.delay
+    }
+
+    pub fn kernel(&self) -> &Kernel {
+        &self.kernel
+    }
+
+    pub fn source_id(&self) -> usize {
+        self.source_id
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,6 +88,14 @@ impl Kernel {
 
     pub fn apply(&self, time: f64) -> f64 {
         self.gamma * time.powi(self.order) * (-self.beta * time).exp()
+    }
+
+    pub fn order(&self) -> i32 {
+        self.order
+    }
+
+    pub fn beta(&self) -> f64 {
+        self.beta
     }
 }
 
