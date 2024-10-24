@@ -1,11 +1,10 @@
-use rand::distributions::{Distribution, Uniform};
+use rand::distributions::Distribution;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
-use std::ops::Range;
 use std::path::Path;
 
 use super::input::Input;
@@ -19,23 +18,23 @@ pub struct Network {
 /// The Network struct represents a spiking neural network.
 impl Network {
     /// Creates a new random Network with a specific number of neurons and connections.
-    pub fn new_random(
+    pub fn new_random<F: Distribution<f64>, P: Distribution<i32>, R: Rng>(
         num_neurons: usize,
         num_connections: usize,
-        weight_range: Range<f64>,
-        delay_range: Range<f64>,
-        order_range: Range<i32>,
-        beta_range: Range<f64>,
-        rng: &mut impl Rng,
+        weight_dist: &F,
+        delay_dist: &F,
+        beta_dist: &F,
+        order_dist: &P,
+        rng: &mut R,
     ) -> Result<Network, &'static str> {
         let mut neurons: Vec<Neuron> = (0..num_neurons)
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        let weight_dist = Uniform::from(weight_range);
-        let delay_dist = Uniform::from(delay_range);
-        let order_dist = Uniform::from(order_range);
-        let beta_dist = Uniform::from(beta_range);
+        // let weight_dist = Uniform::new_inclusive(weight_min, weight_max);
+        // let delay_dist = Uniform::new_inclusive(delay_min, delay_max);
+        // let beta_dist = Uniform::new_inclusive(beta_min, beta_max);
+        // let order_dist = Uniform::new_inclusive(order_min, order_max);
 
         for _ in 0..num_connections {
             let src = rng.gen_range(0..num_neurons);
@@ -53,14 +52,14 @@ impl Network {
     /// Creates a new random Network with a specific number of neurons and connections.
     /// Each neuron sends exactly num_connections / num_neurons outputs.
     /// Example: In a network with 100 connections and 10 neurons, each neuron sends exactly 10 outputs.    
-    pub fn new_random_fout(
+    pub fn new_random_fout<F: Distribution<f64>, P: Distribution<i32>, R: Rng>(
         num_neurons: usize,
         num_connections: usize,
-        weight_range: Range<f64>,
-        delay_range: Range<f64>,
-        order_range: Range<i32>,
-        beta_range: Range<f64>,
-        rng: &mut impl Rng,
+        weight_dist: &F,
+        delay_dist: &F,
+        beta_dist: &F,
+        order_dist: &P,
+        rng: &mut R,
     ) -> Result<Network, &'static str> {
         if num_connections % num_neurons != 0 {
             return Err("Number of connections must be divisible by number of neurons for the network to be perfectly out-balanced.");
@@ -70,10 +69,10 @@ impl Network {
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        let weight_dist = Uniform::from(weight_range);
-        let delay_dist = Uniform::from(delay_range);
-        let order_dist = Uniform::from(order_range);
-        let beta_dist = Uniform::from(beta_range);
+        // let weight_dist = Uniform::from(weight_range);
+        // let delay_dist = Uniform::from(delay_range);
+        // let order_dist = Uniform::from(order_range);
+        // let beta_dist = Uniform::from(beta_range);
 
         for k in 0..num_connections {
             let src = k % num_neurons;
@@ -91,14 +90,14 @@ impl Network {
     /// Creates a new random Network with a specific number of neurons and connections.
     /// Each neuron receives exactly num_connections / num_neurons inputs.
     /// Example: In a network with 100 connections and 10 neurons, each neuron receives exactly 10 connections.    
-    pub fn new_random_fin(
+    pub fn new_random_fin<F: Distribution<f64>, P: Distribution<i32>, R: Rng>(
         num_neurons: usize,
         num_connections: usize,
-        weight_range: Range<f64>,
-        delay_range: Range<f64>,
-        order_range: Range<i32>,
-        beta_range: Range<f64>,
-        rng: &mut impl Rng,
+        weight_dist: &F,
+        delay_dist: &F,
+        beta_dist: &F,
+        order_dist: &P,
+        rng: &mut R,
     ) -> Result<Network, &'static str> {
         if num_connections % num_neurons != 0 {
             return Err("Number of connections must be divisible by number of neurons for the network to be perfectly in-balanced.");
@@ -108,10 +107,10 @@ impl Network {
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        let weight_dist = Uniform::from(weight_range);
-        let delay_dist = Uniform::from(delay_range);
-        let order_dist = Uniform::from(order_range);
-        let beta_dist = Uniform::from(beta_range);
+        // let weight_dist = Uniform::from(weight_range);
+        // let delay_dist = Uniform::from(delay_range);
+        // let order_dist = Uniform::from(order_range);
+        // let beta_dist = Uniform::from(beta_range);
 
         for k in 0..num_connections {
             let src = rng.gen_range(0..num_neurons);
@@ -129,14 +128,14 @@ impl Network {
     /// Creates a new random Network with a specific number of neurons and connections.
     /// Each neuron both receives and sends exactly num_connections / num_neurons connections.
     /// Example: In a network with 100 connections and 10 neurons, each neuron receives and sends exactly 10 connections.
-    pub fn new_random_fin_fout(
+    pub fn new_random_fin_fout<F: Distribution<f64>, P: Distribution<i32>, R: Rng>(
         num_neurons: usize,
         num_connections: usize,
-        weight_range: Range<f64>,
-        delay_range: Range<f64>,
-        order_range: Range<i32>,
-        beta_range: Range<f64>,
-        rng: &mut impl Rng,
+        weight_dist: &F,
+        delay_dist: &F,
+        beta_dist: &F,
+        order_dist: &P,
+        rng: &mut R,
     ) -> Result<Network, &'static str> {
         if num_connections % num_neurons != 0 {
             return Err("Number of connections must be divisible by number of neurons for the network to be perfectly in/out-balanced.");
@@ -146,10 +145,10 @@ impl Network {
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        let weight_dist = Uniform::from(weight_range);
-        let delay_dist = Uniform::from(delay_range);
-        let order_dist = Uniform::from(order_range);
-        let beta_dist = Uniform::from(beta_range);
+        // let weight_dist = Uniform::from(weight_range);
+        // let delay_dist = Uniform::from(delay_range);
+        // let order_dist = Uniform::from(order_range);
+        // let beta_dist = Uniform::from(beta_range);
 
         let mut target_ids = (0..num_neurons)
             .cycle()
@@ -187,18 +186,11 @@ impl Network {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::distributions::Uniform;
     use rand::{rngs::StdRng, SeedableRng};
-    use std::ops::Range;
-
-    const NUM_NEURONS: usize = 3;
-    const NUM_CONNECTIONS: usize = 6;
-    const WEIGHT_RANGE: Range<f64> = -1.0..1.0;
-    const DELAY_RANGE: Range<f64> = 1.0..10.0;
-    const ORDER_RANGE: Range<i32> = 1..16;
-    const BETA_RANGE: Range<f64> = 0.5..2.0;
 
     fn validate_num_outputs(network: &Network, num_outputs: usize) {
-        for neuron in network.neurons.iter(){
+        for neuron in network.neurons.iter() {
             assert_eq!(
                 network
                     .neurons
@@ -212,68 +204,125 @@ mod tests {
     }
 
     fn validate_num_inputs(network: &Network, num_inputs: usize) {
-        for neuron in network.neurons.iter(){
-            assert_eq!(
-                neuron.inputs().len(),
-                num_inputs
-            );
+        for neuron in network.neurons.iter() {
+            assert_eq!(neuron.inputs().len(), num_inputs);
         }
     }
 
     #[test]
     fn test_network_connectivity() {
-        let seed = [1; 32];
-        let mut rng = StdRng::from_seed(seed);
+        let weight_dist = Uniform::new_inclusive(-0.1, 0.1);
+        let delay_dist = Uniform::new_inclusive(0.1, 10.0);
+        let order_dist = Uniform::new_inclusive(1, 8);
+        let beta_dist = Uniform::new_inclusive(0.1, 2.0);
+        let mut rng = StdRng::seed_from_u64(42);
 
         let network = Network::new_random_fout(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
+            3,
+            12,
+            &weight_dist,
+            &delay_dist,
+            &beta_dist,
+            &order_dist,
             &mut rng,
         )
         .unwrap();
-        validate_num_outputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
+        validate_num_outputs(&network, 4);
 
         let network = Network::new_random_fin(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
+            3,
+            12,
+            &weight_dist,
+            &delay_dist,
+            &beta_dist,
+            &order_dist,
             &mut rng,
         )
         .unwrap();
-        validate_num_inputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
+        validate_num_inputs(&network, 4);
 
         let network = Network::new_random_fin_fout(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
+            3,
+            12,
+            &weight_dist,
+            &delay_dist,
+            &beta_dist,
+            &order_dist,
             &mut rng,
         )
         .unwrap();
-        validate_num_inputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
-        validate_num_outputs(&network, NUM_CONNECTIONS / NUM_NEURONS);
+        validate_num_inputs(&network, 4);
+        validate_num_outputs(&network, 4);
+    }
+
+    #[test]
+    fn test_network_params() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let weight_dist = Uniform::new_inclusive(-1.0, 1.0);
+        let order_dist = Uniform::new_inclusive(1, 8);
+        let beta_dist = Uniform::new_inclusive(1.0, 10.0);
+
+        let delay_dist = Uniform::new_inclusive(-1.0, 0.0);
+        assert_eq!(
+            Err("Delay must be positive."),
+            Network::new_random(
+                3,
+                12,
+                &weight_dist,
+                &delay_dist,
+                &beta_dist,
+                &order_dist,
+                &mut rng
+            )
+        );
+
+        let delay_dist = Uniform::new_inclusive(1.0, 10.0);
+        let order_dist = Uniform::new_inclusive(-8, -1);
+        assert_eq!(
+            Err("Order must be positive."),
+            Network::new_random(
+                3,
+                12,
+                &weight_dist,
+                &delay_dist,
+                &beta_dist,
+                &order_dist,
+                &mut rng
+            )
+        );
+
+        let order_dist = Uniform::new_inclusive(1, 8);
+        let beta_dist = Uniform::new_inclusive(-1.0, 0.0);
+        assert_eq!(
+            Err("Beta must be positive."),
+            Network::new_random(
+                3,
+                12,
+                &weight_dist,
+                &delay_dist,
+                &beta_dist,
+                &order_dist,
+                &mut rng
+            )
+        );
     }
 
     #[test]
     fn test_clone() {
-        let seed = [1; 32];
-        let mut rng = StdRng::from_seed(seed);
+        let weight_dist = Uniform::new_inclusive(-0.1, 0.1);
+        let delay_dist = Uniform::new_inclusive(0.1, 10.0);
+        let order_dist = Uniform::new_inclusive(1, 8);
+        let beta_dist = Uniform::new_inclusive(0.1, 2.0);
+        let mut rng = StdRng::seed_from_u64(42);
+
         let network = Network::new_random(
-            NUM_NEURONS,
-            NUM_CONNECTIONS,
-            WEIGHT_RANGE,
-            DELAY_RANGE,
-            ORDER_RANGE,
-            BETA_RANGE,
+            3,
+            12,
+            &weight_dist,
+            &delay_dist,
+            &beta_dist,
+            &order_dist,
             &mut rng,
         )
         .unwrap();
