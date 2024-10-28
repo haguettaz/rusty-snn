@@ -31,11 +31,6 @@ impl Network {
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        // let weight_dist = Uniform::new_inclusive(weight_min, weight_max);
-        // let delay_dist = Uniform::new_inclusive(delay_min, delay_max);
-        // let beta_dist = Uniform::new_inclusive(beta_min, beta_max);
-        // let order_dist = Uniform::new_inclusive(order_min, order_max);
-
         for _ in 0..num_connections {
             let src = rng.gen_range(0..num_neurons);
             let tgt = rng.gen_range(0..num_neurons);
