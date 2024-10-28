@@ -22,7 +22,7 @@ impl Neuron {
     /// * `id` - Unique identifier for the neuron
     /// * `threshold` - Minimum potential required for the neuron to fire
     /// * `inputs` - Collection of inputs to this neuron
-    pub fn new(id: usize, threshold: f64, inputs: Vec<Input>) -> Neuron {
+    pub fn new(id: usize, threshold: f64, inputs: Vec<Input>) -> Self {
         Neuron {
             id,
             threshold,

@@ -22,7 +22,7 @@ impl Input {
         delay: f64,
         order: i32,
         beta: f64,
-    ) -> Result<Input, &'static str> {
+    ) -> Result<Self, &'static str> {
         if delay <= 0.0 {
             return Err("Delay must be positive.");
         }
@@ -83,7 +83,7 @@ pub struct Kernel {
 }
 
 impl Kernel {
-    pub fn build(order: i32, beta: f64) -> Result<Kernel, &'static str> {
+    pub fn build(order: i32, beta: f64) -> Result<Self, &'static str> {
         if order <= 0 {
             return Err("Order must be positive.");
         }

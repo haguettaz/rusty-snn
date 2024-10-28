@@ -26,7 +26,7 @@ impl Network {
         beta_dist: &F,
         order_dist: &P,
         rng: &mut R,
-    ) -> Result<Network, &'static str> {
+    ) -> Result<Self, &'static str> {
         let mut neurons: Vec<Neuron> = (0..num_neurons)
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
@@ -34,10 +34,10 @@ impl Network {
         for _ in 0..num_connections {
             let src = rng.gen_range(0..num_neurons);
             let tgt = rng.gen_range(0..num_neurons);
-            let weight = weight_dist.sample(rng);
-            let delay = delay_dist.sample(rng);
-            let order = order_dist.sample(rng);
-            let beta = beta_dist.sample(rng);
+            let weight = rng.sample(weight_dist);
+            let delay = rng.sample(delay_dist);
+            let order = rng.sample(order_dist);
+            let beta = rng.sample(beta_dist);
             neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
 
@@ -55,7 +55,7 @@ impl Network {
         beta_dist: &F,
         order_dist: &P,
         rng: &mut R,
-    ) -> Result<Network, &'static str> {
+    ) -> Result<Self, &'static str> {
         if num_connections % num_neurons != 0 {
             return Err("Number of connections must be divisible by number of neurons for the network to be perfectly out-balanced.");
         }
@@ -67,10 +67,10 @@ impl Network {
         for k in 0..num_connections {
             let src = k % num_neurons;
             let tgt = rng.gen_range(0..num_neurons);
-            let weight = weight_dist.sample(rng);
-            let delay = delay_dist.sample(rng);
-            let order = order_dist.sample(rng);
-            let beta = beta_dist.sample(rng);
+            let weight = rng.sample(weight_dist);
+            let delay = rng.sample(delay_dist);
+            let order = rng.sample(order_dist);
+            let beta = rng.sample(beta_dist);
             neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
 
@@ -88,7 +88,7 @@ impl Network {
         beta_dist: &F,
         order_dist: &P,
         rng: &mut R,
-    ) -> Result<Network, &'static str> {
+    ) -> Result<Self, &'static str> {
         if num_connections % num_neurons != 0 {
             return Err("Number of connections must be divisible by number of neurons for the network to be perfectly in-balanced.");
         }
@@ -100,10 +100,10 @@ impl Network {
         for k in 0..num_connections {
             let src = rng.gen_range(0..num_neurons);
             let tgt = k % num_neurons;
-            let weight = weight_dist.sample(rng);
-            let delay = delay_dist.sample(rng);
-            let order = order_dist.sample(rng);
-            let beta = beta_dist.sample(rng);
+            let weight = rng.sample(weight_dist);
+            let delay = rng.sample(delay_dist);
+            let order = rng.sample(order_dist);
+            let beta = rng.sample(beta_dist);
             neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
 
@@ -121,7 +121,7 @@ impl Network {
         beta_dist: &F,
         order_dist: &P,
         rng: &mut R,
-    ) -> Result<Network, &'static str> {
+    ) -> Result<Self, &'static str> {
         if num_connections % num_neurons != 0 {
             return Err("Number of connections must be divisible by number of neurons for the network to be perfectly in/out-balanced.");
         }
@@ -138,10 +138,10 @@ impl Network {
         for k in 0..num_connections {
             let src = k % num_neurons;
             let tgt = target_ids[k];
-            let weight = weight_dist.sample(rng);
-            let delay = delay_dist.sample(rng);
-            let order = order_dist.sample(rng);
-            let beta = beta_dist.sample(rng);
+            let weight = rng.sample(weight_dist);
+            let delay = rng.sample(delay_dist);
+            let order = rng.sample(order_dist);
+            let beta = rng.sample(beta_dist);
             neurons[tgt].add_input(Input::build(src, weight, delay, order, beta)?);
         }
         Ok(Network { neurons })
@@ -155,7 +155,7 @@ impl Network {
         Ok(())
     }
 
-    pub fn load_from<P: AsRef<Path>>(path: P) -> std::io::Result<Network> {
+    pub fn load_from<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
