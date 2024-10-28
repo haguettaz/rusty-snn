@@ -69,11 +69,6 @@ impl Network {
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        // let weight_dist = Uniform::from(weight_range);
-        // let delay_dist = Uniform::from(delay_range);
-        // let order_dist = Uniform::from(order_range);
-        // let beta_dist = Uniform::from(beta_range);
-
         for k in 0..num_connections {
             let src = k % num_neurons;
             let tgt = rng.gen_range(0..num_neurons);
@@ -107,11 +102,6 @@ impl Network {
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
 
-        // let weight_dist = Uniform::from(weight_range);
-        // let delay_dist = Uniform::from(delay_range);
-        // let order_dist = Uniform::from(order_range);
-        // let beta_dist = Uniform::from(beta_range);
-
         for k in 0..num_connections {
             let src = rng.gen_range(0..num_neurons);
             let tgt = k % num_neurons;
@@ -144,11 +134,6 @@ impl Network {
         let mut neurons: Vec<Neuron> = (0..num_neurons)
             .map(|id| Neuron::new(id, 1.0, Vec::new()))
             .collect();
-
-        // let weight_dist = Uniform::from(weight_range);
-        // let delay_dist = Uniform::from(delay_range);
-        // let order_dist = Uniform::from(order_range);
-        // let beta_dist = Uniform::from(beta_range);
 
         let mut target_ids = (0..num_neurons)
             .cycle()
