@@ -10,29 +10,45 @@ use rand::Rng;
 pub struct SpikeTrain {
     firing_times: Vec<Vec<f64>>,
     start: f64,
-    duration: f64,
+    end: f64,
 }
 
 impl SpikeTrain {
     pub fn build(
         firing_times: Vec<Vec<f64>>,
         start: f64,
-        duration: f64,
+        end: f64,
     ) -> Result<Self, &'static str> {
         // sort the firing times in each channel
         let mut firing_times = firing_times;
         for times in firing_times.iter_mut() {
             times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            if times.iter().any(|&t| t < start || t >= start + duration) {
-                return Err("Firing times must be within the interval [start, start + duration).");
+            if times.iter().any(|&t| t < start || t >= end) {
+                return Err("Firing times must be within the interval [start, end).");
             }
         }
 
         Ok(SpikeTrain {
             firing_times,
             start,
-            duration,
+            end,
         })
+    }
+
+    pub fn firing_times(&self) -> &[Vec<f64>] {
+        &self.firing_times[..]
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.firing_times.iter().all(|times| times.is_empty())
+    }
+
+    pub fn num_channels(&self) -> usize {
+        self.firing_times.len()
+    }
+
+    pub fn duration(&self) -> f64 {
+        self.end - self.start
     }
 }
 
@@ -43,7 +59,7 @@ pub struct PeriodicSpikeTrain {
 }
 
 impl PeriodicSpikeTrain {
-    fn build(firing_times: Vec<Vec<f64>>, period: f64) -> Result<Self, &'static str> {
+    pub fn build(firing_times: Vec<Vec<f64>>, period: f64) -> Result<Self, &'static str> {
         if period <= 0.0 {
             return Err("Period must be positive.");
         }
@@ -118,8 +134,20 @@ impl PeriodicSpikeTrain {
         PeriodicSpikeTrain::build(firing_times, period)
     }
 
-    pub fn firing_times(&self, c: usize) -> &[f64] {
-        &self.firing_times[c][..]
+    pub fn firing_times(&self) -> &[Vec<f64>] {
+        &self.firing_times[..]
+    }
+
+    pub fn num_channels(&self) -> usize {
+        self.firing_times.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.firing_times.iter().all(|times| times.is_empty())
+    }
+
+    pub fn period(&self) -> f64 {
+        self.period
     }
 }
 
@@ -193,16 +221,39 @@ mod tests {
     fn test_spike_train_build() {
         // sort the firing times in each channel
         assert_eq!(
-            SpikeTrain::build(vec![vec![1.0, 3.0, 2.0], vec![2.0, 3.1], vec![3.9, 0.1]], 0.0, 4.0)
-                .unwrap()
-                .firing_times,
-                vec![vec![1.0, 2.0, 3.0], vec![2.0, 3.1], vec![0.1, 3.9]]
+            SpikeTrain::build(
+                vec![vec![1.0, 3.0, 2.0], vec![2.0, 3.1], vec![3.9, 0.1]],
+                0.0,
+                4.0
+            )
+            .unwrap()
+            .firing_times,
+            vec![vec![1.0, 2.0, 3.0], vec![2.0, 3.1], vec![0.1, 3.9]]
         );
 
         // reject firing times outside the interval
         assert_eq!(
             SpikeTrain::build(vec![vec![0.0, 1.0, 2.0]], 0.0, 2.0),
-            Err("Firing times must be within the interval [start, start + duration).")
+            Err("Firing times must be within the interval [start, end).")
+        );
+    }
+
+    #[test]
+    fn test_spike_train_num_channels() {
+        assert_eq!(
+            SpikeTrain::build(
+                vec![vec![1.0, 3.0, 2.0], vec![2.0, 3.1], vec![3.9, 0.1]],
+                0.0,
+                10.0
+            )
+            .unwrap()
+            .num_channels(),
+            3
+        );
+
+        assert_eq!(
+            SpikeTrain::build(vec![], 0.0, 1.0).unwrap().num_channels(),
+            0
         );
     }
 
@@ -212,7 +263,7 @@ mod tests {
             PeriodicSpikeTrain::build(vec![vec![0.0, 1.0, 2.0], vec![10.5, 2.5, 1.5]], 4.0)
                 .unwrap()
                 .firing_times,
-                vec![vec![0.0, 1.0, 2.0], vec![10.5, 2.5, 1.5]]
+            vec![vec![0.0, 1.0, 2.0], vec![10.5, 2.5, 1.5]]
         );
         assert_eq!(
             PeriodicSpikeTrain::build(vec![vec![0.0, 1.0, 2.0], vec![10.5, 2.5, 1.5]], -4.0),
@@ -224,19 +275,46 @@ mod tests {
     fn test_periodic_spike_train_random() {
         let mut rng = StdRng::seed_from_u64(42);
 
-        let spike_train = PeriodicSpikeTrain::random(10.0, 1000.0, 1, &mut rng).unwrap();
-        assert!(spike_train.firing_times(0).len() < 10);
+        let spike_train = PeriodicSpikeTrain::random(10.0, 1000.0, 100, &mut rng).unwrap();
+        assert!(spike_train
+            .firing_times
+            .iter()
+            .all(|times| times.len() < 10));
 
-        let min_t = spike_train
-            .firing_times(0)
-            .iter()
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let max_t = spike_train
-            .firing_times(0)
-            .iter()
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        assert!(max_t - min_t < 10.0);
+        let min_iter = spike_train.firing_times.iter().map(|times| {
+            times
+                .iter()
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap()
+        });
+        let max_iter = spike_train.firing_times.iter().map(|times| {
+            times
+                .iter()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap()
+        });
+        assert!(min_iter
+            .zip(max_iter)
+            .all(|(min_t, max_t)| max_t - min_t < 10.0));
+    }
+
+    #[test]
+    fn test_periodic_spike_train_num_channels() {
+        assert_eq!(
+            PeriodicSpikeTrain::build(
+                vec![vec![1.0, 3.0, 2.0], vec![2.0, 3.1], vec![3.9, 0.1]],
+                10.0
+            )
+            .unwrap()
+            .num_channels(),
+            3
+        );
+
+        assert_eq!(
+            PeriodicSpikeTrain::build(vec![], 10.0)
+                .unwrap()
+                .num_channels(),
+            0
+        );
     }
 }
