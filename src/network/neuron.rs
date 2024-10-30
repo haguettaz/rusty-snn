@@ -1,4 +1,4 @@
-//! A Neuron is a basic building block of the spiking neural network.
+//! Neuron module with utilities for creating and managing neurons.
 
 use super::input::Input;
 use serde::{Deserialize, Serialize};
@@ -35,8 +35,8 @@ impl Neuron {
         self.id
     }
 
-    pub fn add_input(&mut self, input: Input) {
-        self.inputs.push(input);
+    pub fn add_input(&mut self, source_id: usize, weight: f64, delay: f64) {
+        self.inputs.push(Input::new(source_id, weight, delay));
     }
 
     pub fn inputs(&self) -> &[Input] {
@@ -57,7 +57,7 @@ impl Neuron {
     ///
     /// * `f64` - The total potential of the neuron at the given time.
     pub fn potential(&self, time: f64) -> f64 {
-        self.inputs.iter().map(|input| input.apply(time)).sum()
+        self.inputs.iter().map(|input| input.eval(time)).sum()
     }
 
     pub fn add_firing_time(&mut self, time: f64) {
