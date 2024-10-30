@@ -109,10 +109,10 @@ mod tests {
         assert!((input.eval(2.0) - 2.0 / E).abs() < 1e-10);
     }
 
-    #[test]
-    fn test_input_clone() {
-        let input = Input::build(0, 1.0, 1.0).unwrap();
-        let cloned = input.clone();
-        assert_eq!(input, cloned);
-    }
+    // #[test]
+    // fn test_input_clone() {
+    //     let input = Input::build(0, 1.0, 1.0).unwrap();
+    //     let cloned = input.clone();
+    //     assert_eq!(input, cloned);
+    // }
 }

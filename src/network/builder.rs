@@ -2,14 +2,17 @@
 
 use super::network::Network;
 use super::neuron::Neuron;
-use itertools::multizip;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::distributions::{Uniform, Distribution};
 
 #[derive(Debug, PartialEq)]
 pub enum NetworkSamplerError {
+    /// Error for invalid topology, e.g., incompatible with the number of connections and neurons.
     TopologyError(String),
+    /// Error for invalid weights, e.g., minimum weight greater than maximum weight.
     DelaysError(String),
+    /// Error for invalid delays, e.g., minimum delay greater than maximum delay.
     WeightsError(String),
 }
 
@@ -25,7 +28,6 @@ pub enum Topology {
     FinFout,
 }
 
-//
 #[derive(Debug, PartialEq)]
 pub struct NetworkSampler {
     /// the number of neurons in the network
@@ -103,7 +105,7 @@ impl NetworkSampler {
     pub fn sample<R: Rng>(&self, rng: &mut R) -> Network {
         let mut neurons = Vec::new();
         for id in 0..self.num_neurons {
-            neurons.push(Neuron::new(id, 1.0, Vec::new()));
+            neurons.push(Neuron::new(id, 1.0));
         }
 
         let mut network = Network::new(neurons);
@@ -148,14 +150,12 @@ impl NetworkSampler {
             }
         };
 
-        let weight_vec: Vec<f64> = (0..self.num_connections)
-            .map(|_| rng.gen_range(self.lim_weights.0..=self.lim_weights.1))
-            .collect();
-        let delay_vec: Vec<f64> = (0..self.num_connections)
-            .map(|_| rng.gen_range(self.lim_delays.0..=self.lim_delays.1))
-            .collect();
+        let weight_dist = Uniform::new_inclusive(self.lim_weights.0, self.lim_weights.1);
+        let delay_dist = Uniform::new_inclusive(self.lim_delays.0, self.lim_delays.1);
 
-        for (src_id, tgt_id, weight, delay) in multizip((src_vec, tgt_vec, weight_vec, delay_vec)) {
+        for (src_id, tgt_id) in src_vec.into_iter().zip(tgt_vec.into_iter()) {
+            let weight = weight_dist.sample(rng);
+            let delay = delay_dist.sample(rng);
             network.add_connection(src_id, tgt_id, weight, delay);
         }
 

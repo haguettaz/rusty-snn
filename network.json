@@ -1,0 +1,36 @@
+{
+  "neurons": [
+    {
+      "id": 0,
+      "threshold": 1.0,
+      "firing_times": [],
+      "inputs": []
+    },
+    {
+      "id": 1,
+      "threshold": 1.0,
+      "firing_times": [],
+      "inputs": [
+        {
+          "source_id": 0,
+          "weight": 0.0,
+          "delay": 1.0,
+          "firing_times": []
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "threshold": 1.0,
+      "firing_times": [],
+      "inputs": [
+        {
+          "source_id": 1,
+          "weight": 0.0,
+          "delay": 1.0,
+          "firing_times": []
+        }
+      ]
+    }
+  ]
+}

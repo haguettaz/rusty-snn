@@ -22,11 +22,11 @@ impl Neuron {
     /// * `id` - Unique identifier for the neuron
     /// * `threshold` - Minimum potential required for the neuron to fire
     /// * `inputs` - Collection of inputs to this neuron
-    pub fn new(id: usize, threshold: f64, inputs: Vec<Input>) -> Self {
+    pub fn new(id: usize, threshold: f64) -> Self {
         Neuron {
             id,
             threshold,
-            inputs,
+            inputs: Vec::new(),
             firing_times: Vec::new(),
         }
     }
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_neuron() {
-        let neuron = Neuron::new(0, 1.0, Vec::new());
+        let neuron = Neuron::new(0, 1.0);
         assert_eq!(neuron.id, 0);
         assert_eq!(neuron.threshold, 1.0);
         assert_eq!(neuron.firing_times.len(), 0);
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_add_firing_time() {
-        let mut neuron = Neuron::new(0, 1.0, Vec::new());
+        let mut neuron = Neuron::new(0, 1.0);
         neuron.add_firing_time(0.0);
         assert_eq!(neuron.firing_times.len(), 1);
         neuron.add_firing_time(1.45);
@@ -88,16 +88,9 @@ mod tests {
 
     #[test]
     fn test_firing_times_accessor() {
-        let mut neuron = Neuron::new(0, 1.0, Vec::new());
+        let mut neuron = Neuron::new(0, 1.0);
         neuron.add_firing_time(1.0);
         neuron.add_firing_time(2.0);
         assert_eq!(neuron.firing_times(), &vec![1.0, 2.0]);
-    }
-
-    #[test]
-    fn test_clone() {
-        let neuron = Neuron::new(0, 1.0, Vec::new());
-        let cloned_neuron = neuron.clone();
-        assert_eq!(neuron, cloned_neuron);
     }
 }

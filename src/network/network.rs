@@ -8,6 +8,11 @@ use std::path::Path;
 
 use super::neuron::Neuron;
 
+#[derive(Debug, PartialEq)]
+pub enum NetworkError {
+    InvalidNeuronId(String),
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Network {
     neurons: Vec<Neuron>, // The network owns the neurons, use slices for Connections to other neurons.
@@ -19,6 +24,22 @@ impl Network {
         Network { neurons }
     }
 
+    /// Save the network to a file.
+    /// 
+    /// # Example
+    /// ```
+    /// use std::path::Path;
+    /// use rusty_snn::network::network::Network;
+    /// use rusty_snn::network::neuron::Neuron;
+    /// 
+    /// // Create network from a vector of neurons and add connections
+    /// let mut network = Network::new((0..3).map(|id| Neuron::new(id, 1.0)).collect());
+    /// network.add_connection(0, 1, 0.0, 1.0);
+    /// network.add_connection(1, 2, 0.0, 1.0);
+    /// 
+    /// // Save the network to a file
+    /// network.save_to(Path::new("network.json")).unwrap();
+    /// ```
     pub fn save_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
@@ -27,6 +48,15 @@ impl Network {
         Ok(())
     }
 
+    /// Load a network from a file.
+    /// 
+    /// # Example
+    /// ```
+    /// use rusty_snn::network::network::Network;
+    /// 
+    /// // Load the network from a file
+    /// let network = Network::load_from("network.json").unwrap();
+    /// ```
     pub fn load_from<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -34,8 +64,15 @@ impl Network {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 
-    pub fn add_connection(&mut self, source_id: usize, target_id: usize, weight: f64, delay: f64) {
+    pub fn add_connection(&mut self, source_id: usize, target_id: usize, weight: f64, delay: f64) -> Result<(), NetworkError> {
+        if source_id >= self.num_neurons(){
+            return Err(NetworkError::InvalidNeuronId("Source neuron id is out of bounds".into()));
+        }
+        if target_id >= self.num_neurons(){
+            return Err(NetworkError::InvalidNeuronId("Target neuron id is out of bounds".into()));
+        }
         self.neurons[target_id].add_input(source_id, weight, delay);
+        Ok(())
     }
 
     pub fn neurons(&self) -> &[Neuron] {
@@ -47,9 +84,50 @@ impl Network {
     }
 
     pub fn num_connections(&self) -> usize {
-        self.neurons.iter().flat_map(|n| n.inputs()).count()
+        self.neurons.iter().flat_map(|neuron| neuron.inputs()).count()
     }
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_network() {
+        let mut network = Network::new((0..3).map(|id| Neuron::new(id, 1.0)).collect());
+        assert_eq!(
+            network.add_connection(999, 0, 1.0, 1.0),
+            Err(NetworkError::InvalidNeuronId(
+                "Source neuron id is out of bounds".into()
+            ))
+        );
+        assert_eq!(
+            network.add_connection(0, 999, 1.0, 1.0),
+            Err(NetworkError::InvalidNeuronId(
+                "Target neuron id is out of bounds".into()
+            ))
+        );
+
+        assert_eq!(network.add_connection(1, 2, 1.0, 1.0), Ok(()));
+        assert_eq!(network.num_neurons(), 3);
+        assert_eq!(network.num_connections(), 1);
+    }
+
+    #[test]
+    fn test_save_load() {
+        let mut network = Network::new((0..3).map(|id| Neuron::new(id, 1.0)).collect());
+        let _ = network.add_connection(0, 1,0.0, 1.0);
+        let _ = network.add_connection(1, 2, 0.0, 1.0);
+        
+        // Create a temporary file
+        let temp_file = NamedTempFile::new().unwrap();
+        // Save network to the temporary file
+        network.save_to(temp_file.path()).unwrap();
+
+        // Load the network from the temporary file
+        let loaded_network = Network::load_from(temp_file.path()).unwrap();
+        
+        assert_eq!(network, loaded_network);
+    }
+}
