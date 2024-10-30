@@ -10,6 +10,7 @@ use super::neuron::Neuron;
 
 #[derive(Debug, PartialEq)]
 pub enum NetworkError {
+    /// Error for invalid neuron id, e.g., out of bounds.
     InvalidNeuronId(String),
 }
 
