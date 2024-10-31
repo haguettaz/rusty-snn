@@ -1,6 +1,38 @@
 use super::spike_train::{PeriodicSpikeTrain, SpikeTrain};
 use itertools::Itertools;
 
+enum ComparatorError {}
+
+// enum ComparatorType {
+//     Precision(f64),
+//     Recall(f64),
+// }
+
+pub struct Comparator {
+    ref_spike_train: PeriodicSpikeTrain,
+    // period: f64,
+    // sim_firing_times: &[f64],
+    // window: (f64, f64),
+}
+
+impl Comparator {
+    pub fn new(ref_spike_train: &PeriodicSpikeTrain) -> Self {
+        Self {
+            ref_spike_train,
+        }
+    }
+
+    pub fn precision(&self, firing_times: Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
+        // use brent method or golden section method to find the optimal shift? Does not work. Exhaustive search seems to be the best option so far.
+        todo!();
+        Ok(precision)
+    }
+}
+
+
+
+
+
 // Warning: border cases are not handled here, e.g.,
 pub fn similarity_measure(
     ref_spike_train: &PeriodicSpikeTrain,
