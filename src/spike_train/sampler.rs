@@ -1,67 +1,63 @@
-//! This module provides functionality for generating periodic spike trains with a given period and firing rate.
-//!
-//! The main struct in this module is `PeriodicSpikeTrainSampler`, which allows for the creation of spike trains
-//! that follow a periodic pattern. The spike trains are generated based on a specified period and firing rate.
-//!
-//! # Structs
-//!
-//! - `PeriodicSpikeTrainSampler`: Represents a sampler for generating periodic spike trains.
-//! - `PeriodicSpikeTrainSamplerError`: Enum representing possible errors that can occur when creating a `PeriodicSpikeTrainSampler`.
-//!
-//! # Methods
-//!
-//! - `PeriodicSpikeTrainSampler::new`: Creates a new `PeriodicSpikeTrainSampler` with the specified period and firing rate.
-//! - `PeriodicSpikeTrainSampler::sample`: Generates spike trains for a given number of channels.
-//! - `PeriodicSpikeTrainSampler::compute_num_spikes_probs`: Computes the probabilities for the number of spikes based on the given period and firing rate.
-//!
-//! # Errors
-//!
-//! The `PeriodicSpikeTrainSamplerError` enum defines the following errors:
-//!
-//! - `InvalidPeriod`: Returned when the specified period is not positive.
-//! - `InvalidFiringRate`: Returned when the specified firing rate is negative.
-//! - `InvalidNumSpikeWeights`: Returned when the computation of spike weights fails.
+//! This module provides functionality for sampling random periodic spike trains.
 //!
 //! # Examples
 //!
 //! ```
 //! use rand::rngs::StdRng;
 //! use rand::SeedableRng;
-//! use rsnn::spike_train::sampler::PeriodicSpikeTrainSampler;
+//! use rusty_snn::spike_train::sampler::PeriodicSpikeTrainSampler;
 //!
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let sampler = PeriodicSpikeTrainSampler::new(100.0, 0.2).unwrap();
-//! let firing_times = sampler.sample(2, &mut rng);
-//! println!("{:?}", firing_times);
+//! 
+//! let period = 100.0;
+//! let firing_rate = 0.2;
+//! let num_channels = 10;
+//! 
+//! let sampler = PeriodicSpikeTrainSampler::new(period, firing_rate).unwrap();
+//! let firing_times = sampler.sample(num_channels, &mut rng);
+//! 
+//! for (i, train) in firing_times.iter().enumerate() {
+//!    println!("Channel {}: {:?}", i, train);
 //! ```
-//!
-//! # Tests
-//!
-//! The module includes tests for the `PeriodicSpikeTrainSampler` struct and its methods. The tests cover the following scenarios:
-//!
-//! - `test_sampler_new`: Tests the `new` method to ensure it handles invalid inputs correctly.
-//! - `test_compute_num_spikes_probs`: Tests the `compute_num_spikes_probs` method to verify the correctness of the computed probabilities.
-//! - `test_sample_cyclically_sorted`: Tests the `sample` method to ensure that the firing times are cyclically sorted. (TODO)
-//! - `test_sample_refractory_period`: Tests the `sample` method to ensure that the firing times respect the refractory period.
+
 use itertools::enumerate;
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand::Rng;
 
+/// Error type for the `PeriodicSpikeTrainSampler` struct.
 #[derive(Debug, PartialEq)]
 pub enum PeriodicSpikeTrainSamplerError {
+    /// Returned when the specified period is not positive.
     InvalidPeriod(String),
+    /// Returned when the specified firing rate is not negative.
     InvalidFiringRate(String),
+    /// Returned when the computation of spike weights fails.
     InvalidNumSpikeWeights(String),
 }
 
+/// Represents a sampler for generating periodic spike trains.
 #[derive(Debug, PartialEq)]
 pub struct PeriodicSpikeTrainSampler {
+    /// The period over which spikes are generated.
     period: f64,
+    /// The rate at which spikes are fired.
     firing_rate: f64,
-    num_spikes_weights: WeightedIndex<f64>,
+    /// The probabilities for the number of spikes.
+    num_spikes_probs: WeightedIndex<f64>,
 }
 
 impl PeriodicSpikeTrainSampler {
+    /// Creates a new `PeriodicSpikeTrainSampler` instance with the specified period and firing rate.
+    /// 
+    /// # Parameters
+    /// - `period`: The period over which spikes are generated.
+    /// - `firing_rate`: The rate at which spikes are fired.
+    /// 
+    /// # Returns
+    /// A new `PeriodicSpikeTrainSampler` instance.
+    /// 
+    /// # Errors
+    /// Returns an error if the period is not positive or the firing rate is negative.
     pub fn new(period: f64, firing_rate: f64) -> Result<Self, PeriodicSpikeTrainSamplerError> {
         if period <= 0.0 {
             return Err(PeriodicSpikeTrainSamplerError::InvalidPeriod(
@@ -74,14 +70,14 @@ impl PeriodicSpikeTrainSampler {
                 "The firing rate must be non-negative.".to_string(),
             ));
         }
-        let num_spikes_weights =
+        let num_spikes_probs =
         WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate));
         
-        match num_spikes_weights {
-            Ok(num_spikes_weights) => Ok(PeriodicSpikeTrainSampler {
+        match num_spikes_probs {
+            Ok(num_spikes_probs) => Ok(PeriodicSpikeTrainSampler {
                 period,
                 firing_rate,
-                num_spikes_weights,
+                num_spikes_probs,
             }),
             Err(e) => Err(PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(
                 e.to_string(),
@@ -97,39 +93,25 @@ impl PeriodicSpikeTrainSampler {
     ///
     /// # Returns
     /// A vector of vectors, where each inner vector contains the firing times for a channel.
-    ///
-    /// # Example
-    /// ```
-    /// use rand::rngs::StdRng;
-    /// use rand::SeedableRng;
-    /// use crate::spike_train::sampler::PeriodicSpikeTrainSampler;
-    ///
-    /// let mut rng = StdRng::seed_from_u64(42);
-    /// let sampler = PeriodicSpikeTrainSampler::new(100.0, 0.2).unwrap();
-    /// let num_channels = 5;
-    /// let spike_trains = sampler.sample(num_channels, &mut rng);
-    ///
-    /// for (i, train) in spike_trains.iter().enumerate() {
-    ///     println!("Channel {}: {:?}", i, train);
-    /// }
-    /// ```
     pub fn sample<R: Rng>(&self, num_channels: usize, rng: &mut R) -> Vec<Vec<f64>> {
         let mut firing_times: Vec<Vec<f64>> = Vec::with_capacity(num_channels);
 
         let uniform_ref = Uniform::new(0.0, self.period);
 
         for _ in 0..num_channels {
-            let num_spikes = self.num_spikes_weights.sample(rng);
-            firing_times.push(Vec::with_capacity(num_spikes));
-
+            let num_spikes = self.num_spikes_probs.sample(rng);
+            let mut new_firing_times = Vec::with_capacity(num_spikes);
+            
             if num_spikes == 0 {
+                firing_times.push(new_firing_times);
                 continue;
             }
 
             let ref_spike = uniform_ref.sample(rng);
-            firing_times.last_mut().unwrap().push(ref_spike);
+            new_firing_times.push(ref_spike);
 
             if num_spikes == 1 {
+                firing_times.push(new_firing_times);
                 continue;
             }
 
@@ -138,12 +120,18 @@ impl PeriodicSpikeTrainSampler {
             let mut tmp_times: Vec<f64> =
                 (0..num_spikes - 1).map(|_| uniform.sample(rng)).collect();
 
-            // Sorting safely, treating NaN as equal
-            tmp_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            // Sort the sampled intermediate times
+            tmp_times.sort_by(|a, b| a.partial_cmp(b).expect("Problem with sorting the intermediate times while sampling."));
 
-            firing_times.last_mut().unwrap().extend(
+            // Add refractory periods to intermediate times and extend the new firing times
+            new_firing_times.extend(
                 enumerate(tmp_times).map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
             );
+
+            // Sort the new firing times
+            new_firing_times.sort_by(|a, b| a.partial_cmp(b).expect("Problem with sorting the new firing times while sampling."));
+
+            firing_times.push(new_firing_times);
         }
 
         firing_times
@@ -291,14 +279,14 @@ mod tests {
     }
 
     #[test]
-    fn test_sample_cyclically_sorted() {
+    fn test_sample_sorted() {
         let mut rng = StdRng::seed_from_u64(42);
 
         let sampler = PeriodicSpikeTrainSampler::new(100.0, 0.2).unwrap();
-        let firing_times = sampler.sample(2, &mut rng);
+        let firing_times = sampler.sample(10, &mut rng);
 
         for times in firing_times {
-            todo!();
+            assert!(times.windows(2).all(|w| w[0] <= w[1]));
         }
     }
 
