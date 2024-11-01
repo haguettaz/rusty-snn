@@ -4,7 +4,7 @@
 //! 
 //! # Examples
 //! 
-//! ```
+//! ```rust
 //! use rusty_snn::spike_train::comparator::Comparator;
 //! 
 //! // Create a reference spike train
@@ -32,7 +32,15 @@ use itertools::Itertools;
 #[derive(Debug, PartialEq)]
 pub enum ComparatorError {
     /// Returned when the numbers of channels in the spike trains to compare don't match.
-    InvalidNumChannels(String),
+    InvalidNumChannels,
+}
+
+impl std::fmt::Display for ComparatorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ComparatorError::InvalidNumChannels => write!(f, "Impossible to align the provided spike train with the reference."),
+        }
+    }
 }
 
 /// Represents a comparator for spike trains.
@@ -98,7 +106,7 @@ impl<'a> Comparator<'a> {
     /// The precision of the simulated spike train with respect to the reference spike train.
     pub fn precision(&self, sim_times: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
         if sim_times.len() != self.num_channels {
-            return Err(ComparatorError::InvalidNumChannels("Impossible to align the provided spike train with the reference.".to_string()));
+            return Err(ComparatorError::InvalidNumChannels);
         }
 
         let shifts = self
@@ -143,7 +151,7 @@ impl<'a> Comparator<'a> {
     /// The recall of the simulated spike train with respect to the reference spike train.
     pub fn recall(&self, sim_times: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
         if sim_times.len() != self.num_channels {
-            return Err(ComparatorError::InvalidNumChannels("Impossible to align the provided spike train with the reference.".to_string()));
+            return Err(ComparatorError::InvalidNumChannels);
         }
 
         let shifts = self
@@ -364,7 +372,7 @@ mod tests {
             let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 10];
             let comparator = Comparator::new(&ref_times, 100.0);
             let times:Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
-            assert_eq!(comparator.precision(&times), Err(ComparatorError::InvalidNumChannels("Impossible to align the provided spike train with the reference.".to_string())));
+            assert_eq!(comparator.precision(&times), Err(ComparatorError::InvalidNumChannels));
     
             let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
             let comparator = Comparator::new(&ref_times, 100.0);
@@ -377,7 +385,7 @@ mod tests {
         let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 10];
         let comparator = Comparator::new(&ref_times, 100.0);
         let times:Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
-        assert_eq!(comparator.precision(&times), Err(ComparatorError::InvalidNumChannels("Impossible to align the provided spike train with the reference.".to_string())));
+        assert_eq!(comparator.precision(&times), Err(ComparatorError::InvalidNumChannels));
 
         let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
         let comparator = Comparator::new(&ref_times, 100.0);

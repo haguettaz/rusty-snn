@@ -10,8 +10,19 @@ use super::neuron::Neuron;
 
 #[derive(Debug, PartialEq)]
 pub enum NetworkError {
-    /// Error for invalid neuron id, e.g., out of bounds.
-    InvalidNeuronId(String),
+    /// Error for invalid neuron id.
+    InvalidNeuronId,
+    /// Error for invalid delay value.
+    InvalidDelay,
+}
+
+impl std::fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            NetworkError::InvalidNeuronId => write!(f, "Invalid neuron id: out of bounds"),
+            NetworkError::InvalidDelay => write!(f, "Invalid delay value: must be non-negative"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -26,18 +37,18 @@ impl Network {
     }
 
     /// Save the network to a file.
-    /// 
+    ///
     /// # Example
-    /// ```
+    /// ```rust
     /// use std::path::Path;
     /// use rusty_snn::network::network::Network;
     /// use rusty_snn::network::neuron::Neuron;
-    /// 
+    ///
     /// // Create network from a vector of neurons and add connections
     /// let mut network = Network::new((0..3).map(|id| Neuron::new(id, 1.0)).collect());
     /// network.add_connection(0, 1, 0.0, 1.0);
     /// network.add_connection(1, 2, 0.0, 1.0);
-    /// 
+    ///
     /// // Save the network to a file
     /// network.save_to(Path::new("network.json")).unwrap();
     /// ```
@@ -50,11 +61,11 @@ impl Network {
     }
 
     /// Load a network from a file.
-    /// 
+    ///
     /// # Example
-    /// ```
+    /// ```rust
     /// use rusty_snn::network::network::Network;
-    /// 
+    ///
     /// // Load the network from a file
     /// let network = Network::load_from("network.json").unwrap();
     /// ```
@@ -65,12 +76,21 @@ impl Network {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 
-    pub fn add_connection(&mut self, source_id: usize, target_id: usize, weight: f64, delay: f64) -> Result<(), NetworkError> {
-        if source_id >= self.num_neurons(){
-            return Err(NetworkError::InvalidNeuronId("Source neuron id is out of bounds".into()));
+    pub fn add_connection(
+        &mut self,
+        source_id: usize,
+        target_id: usize,
+        weight: f64,
+        delay: f64,
+    ) -> Result<(), NetworkError> {
+        if source_id >= self.num_neurons() {
+            return Err(NetworkError::InvalidNeuronId);
         }
-        if target_id >= self.num_neurons(){
-            return Err(NetworkError::InvalidNeuronId("Target neuron id is out of bounds".into()));
+        if target_id >= self.num_neurons() {
+            return Err(NetworkError::InvalidNeuronId);
+        }
+        if delay < 0.0 {
+            return Err(NetworkError::InvalidDelay);
         }
         self.neurons[target_id].add_input(source_id, weight, delay);
         Ok(())
@@ -85,7 +105,10 @@ impl Network {
     }
 
     pub fn num_connections(&self) -> usize {
-        self.neurons.iter().flat_map(|neuron| neuron.inputs()).count()
+        self.neurons
+            .iter()
+            .flat_map(|neuron| neuron.inputs())
+            .count()
     }
 }
 
@@ -99,15 +122,15 @@ mod tests {
         let mut network = Network::new((0..3).map(|id| Neuron::new(id, 1.0)).collect());
         assert_eq!(
             network.add_connection(999, 0, 1.0, 1.0),
-            Err(NetworkError::InvalidNeuronId(
-                "Source neuron id is out of bounds".into()
-            ))
+            Err(NetworkError::InvalidNeuronId)
         );
         assert_eq!(
             network.add_connection(0, 999, 1.0, 1.0),
-            Err(NetworkError::InvalidNeuronId(
-                "Target neuron id is out of bounds".into()
-            ))
+            Err(NetworkError::InvalidNeuronId)
+        );
+        assert_eq!(
+            network.add_connection(0, 1, 1.0, -1.0),
+            Err(NetworkError::InvalidDelay)
         );
 
         assert_eq!(network.add_connection(1, 2, 1.0, 1.0), Ok(()));
@@ -118,9 +141,9 @@ mod tests {
     #[test]
     fn test_save_load() {
         let mut network = Network::new((0..3).map(|id| Neuron::new(id, 1.0)).collect());
-        let _ = network.add_connection(0, 1,0.0, 1.0);
-        let _ = network.add_connection(1, 2, 0.0, 1.0);
-        
+        assert_eq!(network.add_connection(0, 1, 0.0, 1.0), Ok(()));
+        assert_eq!(network.add_connection(1, 2, 0.0, 1.0), Ok(()));
+
         // Create a temporary file
         let temp_file = NamedTempFile::new().unwrap();
         // Save network to the temporary file
@@ -128,7 +151,7 @@ mod tests {
 
         // Load the network from the temporary file
         let loaded_network = Network::load_from(temp_file.path()).unwrap();
-        
+
         assert_eq!(network, loaded_network);
     }
 }

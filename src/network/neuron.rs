@@ -1,7 +1,17 @@
-//! Neuron module with utilities for creating and managing neurons.
+//! Module implementing neural network neurons.
+//!
+//! A neuron is a fundamental unit in the neural network that:
+//! - Maintains a collection of weighted inputs from other neurons
+//! - Calculates its potential based on input signals
+//! - Fires when its potential exceeds a threshold
+//! - Records its firing history
 
 use super::input::Input;
 use serde::{Deserialize, Serialize};
+
+pub enum NeuronError {
+    InvalidInput(String),
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Neuron {
@@ -21,7 +31,6 @@ impl Neuron {
     /// # Arguments
     /// * `id` - Unique identifier for the neuron
     /// * `threshold` - Minimum potential required for the neuron to fire
-    /// * `inputs` - Collection of inputs to this neuron
     pub fn new(id: usize, threshold: f64) -> Self {
         Neuron {
             id,

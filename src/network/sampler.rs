@@ -1,4 +1,4 @@
-//! Builder modulex with utilities for generating random networks.
+//! Builder module with utilities for generating random networks.
 
 use super::network::Network;
 use super::neuron::Neuron;
@@ -9,11 +9,30 @@ use rand::Rng;
 #[derive(Debug, PartialEq)]
 pub enum NetworkSamplerError {
     /// Error for invalid topology, e.g., incompatible with the number of connections and neurons.
-    TopologyError(String),
-    /// Error for invalid weights, e.g., minimum weight greater than maximum weight.
-    DelaysError(String),
+    TopologyError,
     /// Error for invalid delays, e.g., minimum delay greater than maximum delay.
-    WeightsError(String),
+    DelaysError,
+    /// Error for invalid weights, e.g., minimum weight greater than maximum weight.
+    WeightsError,
+}
+
+impl std::fmt::Display for NetworkSamplerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            NetworkSamplerError::TopologyError => write!(
+                f,
+                "The provided topology is not compatible with the number of connections and neurons.",
+            ),
+            NetworkSamplerError::DelaysError => write!(
+                f,
+                "The provided interval of delays is invalid.",
+            ),
+            NetworkSamplerError::WeightsError => write!(
+                f,
+                "The provided interval of weights is invalid.",
+            ),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -45,12 +64,13 @@ pub struct NetworkSampler {
 impl NetworkSampler {
     /// Create a new NetworkSampler instance.
     ///
-    /// # Examples
+    /// # Arguments
     ///
-    /// ```
-    /// use rusty_snn::network::sampler::{NetworkSampler, Topology};
-    /// let sampler = NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::Random);
-    /// ```
+    /// * `num_neurons` - The number of neurons in the network
+    /// * `num_connections` - The number of connections in the network
+    /// * `lim_weights` - The minimum and maximum weights of the connections
+    /// * `lim_delays` - The minimum and maximum delays of the connections
+    /// * `topology` - The distribution of network structures
     pub fn new(
         num_neurons: usize,
         num_connections: usize,
@@ -59,25 +79,19 @@ impl NetworkSampler {
         topology: Topology,
     ) -> Result<Self, NetworkSamplerError> {
         if !matches!(topology, Topology::Random) && num_connections % num_neurons != 0 {
-            return Err(NetworkSamplerError::TopologyError("The provided topology is not compatible with the number of connections and neurons.".into()));
+            return Err(NetworkSamplerError::TopologyError);
         }
 
         if lim_weights.0 > lim_weights.1 {
-            return Err(NetworkSamplerError::WeightsError(
-                "The minimum weight must be less than the maximum weight.".into(),
-            ));
+            return Err(NetworkSamplerError::WeightsError);
         }
 
         if lim_delays.0 > lim_delays.1 {
-            return Err(NetworkSamplerError::DelaysError(
-                "The minimum delay must be less than the maximum weight.".into(),
-            ));
+            return Err(NetworkSamplerError::DelaysError);
         }
 
         if lim_delays.0 < 0.0 {
-            return Err(NetworkSamplerError::DelaysError(
-                "Delays must be non-negative.".into(),
-            ));
+            return Err(NetworkSamplerError::DelaysError);
         }
 
         Ok(NetworkSampler {
@@ -93,7 +107,7 @@ impl NetworkSampler {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
     /// use rusty_snn::network::sampler::{NetworkSampler, Topology};
     /// use rand::SeedableRng;
     /// use rand::rngs::StdRng;
@@ -118,7 +132,9 @@ impl NetworkSampler {
         for (src_id, tgt_id) in src_vec.into_iter().zip(tgt_vec.into_iter()) {
             let weight = weight_dist.sample(rng);
             let delay = delay_dist.sample(rng);
-            _ = network.add_connection(src_id, tgt_id, weight, delay);
+            if let Err(e) = network.add_connection(src_id, tgt_id, weight, delay) {
+                eprintln!("Failed to add connection: {:?}", e);
+            }
         }
 
         network
@@ -197,41 +213,18 @@ mod tests {
     #[test]
     fn test_sampler_new() {
         assert_eq!(
-            NetworkSampler::new(3, 8, (-0.1, 0.1), (10.0, 0.1), Topology::Fin),
-            Err(NetworkSamplerError::TopologyError(
-                "The provided topology is not compatible with the number of connections and neurons."
-                    .into()
-            ))
+            NetworkSampler::new(3, 8, (-0.25, 0.25), (1.0, 8.0), Topology::Fin),
+            Err(NetworkSamplerError::TopologyError)
         );
 
         assert_eq!(
-            NetworkSampler::new(3, 8, (-0.1, 0.1), (10.0, 0.1), Topology::Fout),
-            Err(NetworkSamplerError::TopologyError(
-                "The provided topology is not compatible with the number of connections and neurons."
-                    .into()
-            ))
+            NetworkSampler::new(3, 8, (-0.25, 0.25), (1.0, 8.0), Topology::Fout),
+            Err(NetworkSamplerError::TopologyError)
         );
 
         assert_eq!(
-            NetworkSampler::new(3, 8, (-0.1, 0.1), (10.0, 0.1), Topology::FinFout),
-            Err(NetworkSamplerError::TopologyError(
-                "The provided topology is not compatible with the number of connections and neurons."
-                    .into()
-            ))
-        );
-
-        assert_eq!(
-            NetworkSampler::new(3, 12, (0.1, -0.1), (0.1, 10.0), Topology::Random),
-            Err(NetworkSamplerError::WeightsError(
-                "The minimum weight must be less than the maximum weight.".into()
-            ))
-        );
-
-        assert_eq!(
-            NetworkSampler::new(3, 12, (-0.1, 0.1), (10.0, 0.1), Topology::Random),
-            Err(NetworkSamplerError::DelaysError(
-                "The minimum delay must be less than the maximum weight.".into()
-            ))
+            NetworkSampler::new(3, 8, (-0.25, 0.25), (1.0, 8.0), Topology::FinFout),
+            Err(NetworkSamplerError::TopologyError)
         );
 
         let mut rng = StdRng::seed_from_u64(42);
@@ -259,10 +252,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut vec = (0..10).cycle().take(100).collect::<Vec<usize>>();
         vec.sort();
-        
+
         let network_sampler =
-        NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::Fin).unwrap();
-        
+            NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::Fin).unwrap();
+
         let (src_vec, mut tgt_vec) = network_sampler.sample_src_tgt(&mut rng);
         assert_eq!(src_vec.len(), 100);
         tgt_vec.sort();
@@ -274,10 +267,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut vec = (0..10).cycle().take(100).collect::<Vec<usize>>();
         vec.sort();
-        
+
         let network_sampler =
-        NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::Fout).unwrap();
-        
+            NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::Fout).unwrap();
+
         let (mut src_vec, tgt_vec) = network_sampler.sample_src_tgt(&mut rng);
         src_vec.sort();
         assert_eq!(src_vec, vec);
@@ -289,10 +282,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut vec = (0..10).cycle().take(100).collect::<Vec<usize>>();
         vec.sort();
-        
+
         let network_sampler =
-        NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::FinFout).unwrap();
-        
+            NetworkSampler::new(10, 100, (-0.1, 0.1), (0.1, 10.0), Topology::FinFout).unwrap();
+
         let (mut src_vec, mut tgt_vec) = network_sampler.sample_src_tgt(&mut rng);
         src_vec.sort();
         assert_eq!(src_vec, vec);

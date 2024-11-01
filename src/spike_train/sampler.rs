@@ -2,25 +2,25 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```rust
 //! use rand::rngs::StdRng;
 //! use rand::SeedableRng;
 //! use rusty_snn::spike_train::sampler::PeriodicSpikeTrainSampler;
 //!
 //! let mut rng = StdRng::seed_from_u64(42);
-//! 
+//!
 //! let period = 100.0;
 //! let firing_rate = 0.2;
 //! let num_channels = 10;
-//! 
+//!
 //! let sampler = PeriodicSpikeTrainSampler::new(period, firing_rate).unwrap();
 //! let firing_times = sampler.sample(num_channels, &mut rng);
-//! 
+//!
 //! for (i, train) in firing_times.iter().enumerate() {
 //!    println!("Channel {}: {:?}", i, train);
+//! }
 //! ```
 
-use itertools::enumerate;
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand::Rng;
 
@@ -28,11 +28,27 @@ use rand::Rng;
 #[derive(Debug, PartialEq)]
 pub enum PeriodicSpikeTrainSamplerError {
     /// Returned when the specified period is not positive.
-    InvalidPeriod(String),
-    /// Returned when the specified firing rate is not negative.
-    InvalidFiringRate(String),
+    InvalidPeriod,
+    /// Returned when the specified firing rate is negative.
+    InvalidFiringRate,
     /// Returned when the computation of spike weights fails.
     InvalidNumSpikeWeights(String),
+}
+
+impl std::fmt::Display for PeriodicSpikeTrainSamplerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            PeriodicSpikeTrainSamplerError::InvalidPeriod => {
+                write!(f, "The spike train period must be positive.")
+            }
+            PeriodicSpikeTrainSamplerError::InvalidFiringRate => {
+                write!(f, "The firing rate must be non-negative.")
+            }
+            PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(e) => {
+                write!(f, "Failed to compute the spike weights: {}", e)
+            }
+        }
+    }
 }
 
 /// Represents a sampler for generating periodic spike trains.
@@ -48,43 +64,37 @@ pub struct PeriodicSpikeTrainSampler {
 
 impl PeriodicSpikeTrainSampler {
     /// Creates a new `PeriodicSpikeTrainSampler` instance with the specified period and firing rate.
-    /// 
+    ///
     /// # Parameters
     /// - `period`: The period over which spikes are generated.
     /// - `firing_rate`: The rate at which spikes are fired.
-    /// 
+    ///
     /// # Returns
     /// A new `PeriodicSpikeTrainSampler` instance.
-    /// 
+    ///
     /// # Errors
     /// Returns an error if the period is not positive or the firing rate is negative.
     pub fn new(period: f64, firing_rate: f64) -> Result<Self, PeriodicSpikeTrainSamplerError> {
         if period <= 0.0 {
-            return Err(PeriodicSpikeTrainSamplerError::InvalidPeriod(
-                "The period must be positive.".to_string(),
-            ));
+            return Err(PeriodicSpikeTrainSamplerError::InvalidPeriod);
         }
-        
+
         if firing_rate < 0.0 {
-            return Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate(
-                "The firing rate must be non-negative.".to_string(),
-            ));
+            return Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate);
         }
         let num_spikes_probs =
-        WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate));
-        
-        match num_spikes_probs {
-            Ok(num_spikes_probs) => Ok(PeriodicSpikeTrainSampler {
-                period,
-                firing_rate,
-                num_spikes_probs,
-            }),
-            Err(e) => Err(PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(
-                e.to_string(),
-            )),
-        }
+            WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate)).map_err(|e| {
+                PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(e.to_string())
+            })?;
+
+        Ok(PeriodicSpikeTrainSampler {
+            period,
+            firing_rate,
+            num_spikes_probs,
+        })
     }
-    
+
+
     /// Samples spike trains with a given number of channels.
     ///
     /// # Parameters
@@ -101,7 +111,7 @@ impl PeriodicSpikeTrainSampler {
         for _ in 0..num_channels {
             let num_spikes = self.num_spikes_probs.sample(rng);
             let mut new_firing_times = Vec::with_capacity(num_spikes);
-            
+
             if num_spikes == 0 {
                 firing_times.push(new_firing_times);
                 continue;
@@ -121,15 +131,21 @@ impl PeriodicSpikeTrainSampler {
                 (0..num_spikes - 1).map(|_| uniform.sample(rng)).collect();
 
             // Sort the sampled intermediate times
-            tmp_times.sort_by(|a, b| a.partial_cmp(b).expect("Problem with sorting the intermediate times while sampling."));
+            tmp_times.sort_by(|a, b| {
+                a.partial_cmp(b)
+                    .expect("Problem with sorting the intermediate times while sampling.")
+            });
 
             // Add refractory periods to intermediate times and extend the new firing times
             new_firing_times.extend(
-                enumerate(tmp_times).map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
+                tmp_times.iter().enumerate().map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
             );
 
             // Sort the new firing times
-            new_firing_times.sort_by(|a, b| a.partial_cmp(b).expect("Problem with sorting the new firing times while sampling."));
+            new_firing_times.sort_by(|a, b| {
+                a.partial_cmp(b)
+                    .expect("Problem with sorting the new firing times while sampling.")
+            });
 
             firing_times.push(new_firing_times);
         }
@@ -150,12 +166,14 @@ impl PeriodicSpikeTrainSampler {
             return vec![1.0];
         }
 
+        // Determine the maximum number of spikes based on the period
         let max_num_spikes = if period <= period.floor() {
             period as usize - 1
         } else {
             period as usize
         };
 
+        // Compute the (unnormalized) log probabilities for the number of spikes (more numerically stable)
         let log_weights = (0..=max_num_spikes).scan(0.0, |state, n| {
             if n > 0 {
                 *state += (n as f64).ln();
@@ -163,7 +181,7 @@ impl PeriodicSpikeTrainSampler {
             Some((n as f64 - 1.0) * (firing_rate * (period - n as f64)).ln() - *state)
         });
 
-        // to avoid overflow when exponentiating, normalize the log probabilities by subtracting the maximum value
+        // To avoid overflow when exponentiating, normalize the log probabilities by subtracting the maximum value
         let max = log_weights.clone().fold(f64::NEG_INFINITY, f64::max);
         let weights = log_weights.map(|log_p| (log_p - max).exp());
 
@@ -189,23 +207,17 @@ mod tests {
     fn test_sampler_new() {
         assert_eq!(
             PeriodicSpikeTrainSampler::new(-10.0, 1.0),
-            Err(PeriodicSpikeTrainSamplerError::InvalidPeriod(
-                "The period must be positive.".into()
-            ))
+            Err(PeriodicSpikeTrainSamplerError::InvalidPeriod)
         );
 
         assert_eq!(
             PeriodicSpikeTrainSampler::new(0.0, 1.0),
-            Err(PeriodicSpikeTrainSamplerError::InvalidPeriod(
-                "The period must be positive.".into()
-            ))
+            Err(PeriodicSpikeTrainSamplerError::InvalidPeriod)
         );
 
         assert_eq!(
             PeriodicSpikeTrainSampler::new(10.0, -1.0),
-            Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate(
-                "The firing rate must be non-negative.".into()
-            ))
+            Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate)
         );
     }
 
@@ -256,22 +268,21 @@ mod tests {
 
         // test expected value
         assert!(
-            (enumerate(PeriodicSpikeTrainSampler::compute_num_spikes_probs(
-                1.00001,
-                100000000000.0
-            ))
-            .map(|(n, p)| (n as f64 * p))
-            .sum::<f64>()
+            (PeriodicSpikeTrainSampler::compute_num_spikes_probs(1.00001, 100000000000.0)
+                .iter()
+                .enumerate()
+                .map(|(n, p)| (n as f64 * p))
+                .sum::<f64>()
                 - 1.0)
                 .abs()
                 < 1e-6
         );
         assert!(
-            (enumerate(PeriodicSpikeTrainSampler::compute_num_spikes_probs(
-                50.0, 0.2
-            ))
-            .map(|(n, p)| (n as f64 * p))
-            .sum::<f64>()
+            (PeriodicSpikeTrainSampler::compute_num_spikes_probs(50.0, 0.2)
+                .iter()
+                .enumerate()
+                .map(|(n, p)| (n as f64 * p))
+                .sum::<f64>()
                 - 7.225326)
                 .abs()
                 < 1e-6
