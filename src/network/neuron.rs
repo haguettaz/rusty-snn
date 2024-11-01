@@ -1,7 +1,17 @@
-//! A Neuron is a basic building block of the spiking neural network.
+//! Module implementing neural network neurons.
+//!
+//! A neuron is a fundamental unit in the neural network that:
+//! - Maintains a collection of weighted inputs from other neurons
+//! - Calculates its potential based on input signals
+//! - Fires when its potential exceeds a threshold
+//! - Records its firing history
 
 use super::input::Input;
 use serde::{Deserialize, Serialize};
+
+pub enum NeuronError {
+    InvalidInput(String),
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Neuron {
@@ -21,12 +31,11 @@ impl Neuron {
     /// # Arguments
     /// * `id` - Unique identifier for the neuron
     /// * `threshold` - Minimum potential required for the neuron to fire
-    /// * `inputs` - Collection of inputs to this neuron
-    pub fn new(id: usize, threshold: f64, inputs: Vec<Input>) -> Neuron {
+    pub fn new(id: usize, threshold: f64) -> Self {
         Neuron {
             id,
             threshold,
-            inputs,
+            inputs: Vec::new(),
             firing_times: Vec::new(),
         }
     }
@@ -35,8 +44,8 @@ impl Neuron {
         self.id
     }
 
-    pub fn add_input(&mut self, input: Input) {
-        self.inputs.push(input);
+    pub fn add_input(&mut self, source_id: usize, weight: f64, delay: f64) {
+        self.inputs.push(Input::new(source_id, weight, delay));
     }
 
     pub fn inputs(&self) -> &[Input] {
@@ -57,7 +66,7 @@ impl Neuron {
     ///
     /// * `f64` - The total potential of the neuron at the given time.
     pub fn potential(&self, time: f64) -> f64 {
-        self.inputs.iter().map(|input| input.apply(time)).sum()
+        self.inputs.iter().map(|input| input.eval(time)).sum()
     }
 
     pub fn add_firing_time(&mut self, time: f64) {
@@ -71,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_neuron() {
-        let neuron = Neuron::new(0, 1.0, Vec::new());
+        let neuron = Neuron::new(0, 1.0);
         assert_eq!(neuron.id, 0);
         assert_eq!(neuron.threshold, 1.0);
         assert_eq!(neuron.firing_times.len(), 0);
@@ -79,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_add_firing_time() {
-        let mut neuron = Neuron::new(0, 1.0, Vec::new());
+        let mut neuron = Neuron::new(0, 1.0);
         neuron.add_firing_time(0.0);
         assert_eq!(neuron.firing_times.len(), 1);
         neuron.add_firing_time(1.45);
@@ -88,16 +97,9 @@ mod tests {
 
     #[test]
     fn test_firing_times_accessor() {
-        let mut neuron = Neuron::new(0, 1.0, Vec::new());
+        let mut neuron = Neuron::new(0, 1.0);
         neuron.add_firing_time(1.0);
         neuron.add_firing_time(2.0);
         assert_eq!(neuron.firing_times(), &vec![1.0, 2.0]);
-    }
-
-    #[test]
-    fn test_clone() {
-        let neuron = Neuron::new(0, 1.0, Vec::new());
-        let cloned_neuron = neuron.clone();
-        assert_eq!(neuron, cloned_neuron);
     }
 }

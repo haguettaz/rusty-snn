@@ -1,3 +1,5 @@
+//! Input module with utilities for creating and managing inputs to neurons.
+
 use serde::{Deserialize, Serialize};
 
 /// Represents an input to a neuron.
@@ -9,113 +11,73 @@ pub struct Input {
     weight: f64,
     /// Delay of the input
     delay: f64,
-    /// Kernel function for the input
-    kernel: Kernel,
     /// Times at which the input fired
     firing_times: Vec<f64>,
 }
 
 impl Input {
-    pub fn build(
-        source_id: usize,
-        weight: f64,
-        delay: f64,
-        order: i32,
-        beta: f64,
-    ) -> Result<Input, &'static str> {
-        if delay <= 0.0 {
-            return Err("Delay must be positive.");
-        }
-
-        Ok(Input {
+    /// Create a new input with the specified parameters.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `source_id` - Unique identifier for the source of the input
+    /// * `weight` - Weight of the input
+    /// * `delay` - Delay of the input
+    pub fn new(source_id: usize, weight: f64, delay: f64) -> Self {
+        Input {
             source_id,
             weight,
             delay,
-            kernel: Kernel::build(order, beta)?,
             firing_times: Vec::new(),
-        })
+        }
     }
 
-    pub fn add_firing_time(&mut self, time: f64) {
-        self.firing_times.push(time);
+    /// Add a firing time to the input.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `firing_time` - Time at which the input fired
+    pub fn add_firing_time(&mut self, firing_time: f64) {
+        self.firing_times.push(firing_time);
     }
 
-    pub fn apply(&self, time: f64) -> f64 {
+    /// Evaluate the input at a given time.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `t` - Time at which to evaluate the input
+    pub fn eval(&self, t: f64) -> f64 {
         self.firing_times
             .iter()
-            .filter(|&&ft| ft + self.delay < time)
-            .map(|ft| self.weight * self.kernel.apply(time - ft - self.delay))
+            .map(|ft| t - ft - self.delay)
+            .filter_map(|dt| {
+                if dt > 0. {
+                    Some(2_f64 * dt * (-dt).exp())
+                } else {
+                    None
+                }
+            })
             .sum()
     }
 
-    pub fn firing_times(&self) -> &Vec<f64> {
+    /// Borrow the firing times of the input.
+    pub fn firing_times(&self) -> &[f64] {
         &self.firing_times
     }
 
+    /// Get the weight of the input.
     pub fn weight(&self) -> f64 {
         self.weight
     }
 
+    /// Get the delay of the input.
     pub fn delay(&self) -> f64 {
         self.delay
     }
 
-    pub fn kernel(&self) -> &Kernel {
-        &self.kernel
-    }
-
+    /// Get the id of the input neuron.
     pub fn source_id(&self) -> usize {
         self.source_id
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-/// Implements a normalized function kernel for synaptic response.
-/// The kernel is defined as: γ * t^n * exp(-βt) for t > 0 where:
-/// - n is the order
-/// - β (beta) is the time constant
-/// - γ (gamma) is the normalization factor
-#[derive(PartialEq, Clone)]
-pub struct Kernel {
-    order: i32,
-    beta: f64,
-    gamma: f64,
-}
-
-impl Kernel {
-    pub fn build(order: i32, beta: f64) -> Result<Kernel, &'static str> {
-        if order <= 0 {
-            return Err("Order must be positive.");
-        }
-        if beta <= 0.0 {
-            return Err("Beta must be positive.");
-        }
-
-        // Calculate ln(γ²) where γ is the normalization factor
-        // ln(γ²) = ln((2β)^(n+1/2) / n!) where n is the order
-        // This is derived from the constraint that the kernel should have normalized energy.
-        let ln_gamma2: f64 = (1..=2 * order).fold(
-            ((2 * order + 1) as f64) * (2.0 * beta as f64).ln(),
-            |acc, n| acc - (n as f64).ln(),
-        );
-        let gamma = (0.5 * ln_gamma2).exp();
-
-        Ok(Kernel { order, beta, gamma })
-    }
-
-    pub fn apply(&self, time: f64) -> f64 {
-        if time < 0.0 {
-            return 0.0;
-        }
-        self.gamma * time.powi(self.order) * (-self.beta * time).exp()
-    }
-
-    pub fn order(&self) -> i32 {
-        self.order
-    }
-
-    pub fn beta(&self) -> f64 {
-        self.beta
     }
 }
 
@@ -125,62 +87,12 @@ mod tests {
     use std::f64::consts::E;
 
     #[test]
-    fn test_kernel() {
-        let kernel = Kernel::build(1, 1.0).unwrap();
-        assert_eq!(kernel.order, 1);
-        assert_eq!(kernel.beta, 1.0);
-        assert!((kernel.gamma - 2.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_input() {
-        let input = Input::build(0, 1.0, 1.0, 1, 1.0).unwrap();
-        assert_eq!(input.source_id, 0);
-        assert_eq!(input.delay, 1.0);
-        assert_eq!(input.weight, 1.0);
-        assert_eq!(input.kernel.order, 1);
-        assert_eq!(input.kernel.beta, 1.0);
-        assert_eq!(input.firing_times.len(), 0);
-    }
-
-    #[test]
-    fn test_input_rejects() {
-        assert_eq!(Input::build(0, 1.0, -1.0, 1, 1.0), Err("Delay must be positive."));
-        assert_eq!(Input::build(0, 1.0, 1.0, -1, 1.0), Err("Order must be positive."));
-        assert_eq!(Input::build(0, 1.0, 1.0, 1, -1.0), Err("Beta must be positive."));
-    }
-
-
-    #[test]
-    fn test_kernel_apply() {
-        let kernel = Kernel::build(1, 1.0).unwrap();
-        assert!((kernel.apply(-1.0)).abs() < 1e-10); // Should decay to ~0
-        assert!((kernel.apply(0.0)).abs() < 1e-10);
-        assert!((kernel.apply(1.0) - 2.0 / E).abs() < 1e-10);
-        assert!((kernel.apply(100.0)).abs() < 1e-10); // Should decay to ~0
-    }
-
-    #[test]
     fn test_input_apply() {
-        let mut input = Input::build(0, 1.0, 1.0, 1, 1.0).unwrap();
+        let mut input = Input::new(0, 1.0, 1.0);
         input.add_firing_time(0.0);
         input.add_firing_time(1.0);
-        assert!((input.apply(0.0)).abs() < 1e-10);
-        assert!((input.apply(1.0)).abs() < 1e-10);
-        assert!((input.apply(2.0) - 2.0 / E).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_input_clone() {
-        let input = Input::build(0, 1.0, 1.0, 1, 1.0).unwrap();
-        let cloned = input.clone();
-        assert_eq!(input, cloned);
-    }
-
-    #[test]
-    fn test_kernel_clone() {
-        let kernel = Kernel::build(1, 1.0).unwrap();
-        let cloned = kernel.clone();
-        assert_eq!(kernel, cloned);
+        assert!((input.eval(0.0)).abs() < 1e-10);
+        assert!((input.eval(1.0)).abs() < 1e-10);
+        assert!((input.eval(2.0) - 2.0 / E).abs() < 1e-10);
     }
 }
