@@ -1,6 +1,41 @@
-//! Input module with utilities for creating and managing inputs to neurons.
+//! Channel module with utilities for creating and managing communication channels between neurons.
 
 use serde::{Deserialize, Serialize};
+
+/// Trait representing a communication channel (axon + synapse + dentrite) between two neurons.
+pub trait Channel {
+    /// Evaluate the signal sent by the source neuron at a given time.
+    fn eval_source(&self, t: f64) -> f64;
+
+    /// Evaluate the signal received by the target neuron at a given time.
+    fn eval_target(&self, t: f64) -> f64;
+
+    /// Get the source id of the channel.
+    fn source_id(&self) -> usize;
+
+    /// Get the target id of the channel.
+    fn target_id(&self) -> usize;
+}
+
+/// implement the channel trait for a input struct 
+impl Channel for Input {
+    fn eval_source(&self, t: f64) -> f64 {
+        self.eval(t)
+    }
+
+    fn eval_target(&self, t: f64) -> f64 {
+        self.eval(t) * self.weight
+    }
+
+    fn source_id(&self) -> usize {
+        self.source_id()
+    }
+
+    fn target_id(&self) -> usize {
+        // Assuming target_id is the same as source_id for Input
+        self.source_id()
+    }
+}
 
 /// Represents an input to a neuron.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -78,6 +113,40 @@ impl Input {
     /// Get the id of the input neuron.
     pub fn source_id(&self) -> usize {
         self.source_id
+    }
+}
+
+impl Wire for Input {
+    fn eval(&self, t: f64) -> f64 {
+        self.eval(t)
+    }
+
+    fn source_id(&self) -> usize {
+        self.source_id()
+    }
+
+    fn target_id(&self) -> usize {
+        // Assuming target_id is the same as source_id for Input
+        self.source_id()
+    }
+}
+
+impl Channel for Input {
+    fn eval_source(&self, t: f64) -> f64 {
+        self.eval(t)
+    }
+
+    fn eval_target(&self, t: f64) -> f64 {
+        self.eval(t) * self.weight
+    }
+
+    fn source_id(&self) -> usize {
+        self.source_id()
+    }
+
+    fn target_id(&self) -> usize {
+        // Assuming target_id is the same as source_id for Input
+        self.source_id()
     }
 }
 

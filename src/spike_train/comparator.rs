@@ -1,27 +1,27 @@
 //! This module provides a comparator for spike trains.
-//! 
+//!
 //! The comparator is used to compare a spike train with a (periodic) reference.
-//! 
+//!
 //! # Examples
-//! 
+//!
 //! ```rust
 //! use rusty_snn::spike_train::comparator::Comparator;
-//! 
+//!
 //! // Create a reference spike train
-//! let ref_times: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
-//! let comparator = Comparator::new(&ref_times, 100.0);
+//! let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
+//! let comparator = Comparator::new(&ref_trains, 100.0);
 //!
 //! // Create a simulated spike train
-//! let sim_times: Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
+//! let trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
 //!
 //! // Compute precision
-//! match comparator.precision(&sim_times) {
+//! match comparator.precision(&trains) {
 //!     Ok(precision) => println!("Precision: {}", precision),
 //!     Err(e) => println!("Error: {:?}", e),
 //! }
 //!
 //! // Compute recall
-//! match comparator.recall(&sim_times) {
+//! match comparator.recall(&trains) {
 //!     Ok(recall) => println!("Recall: {}", recall),
 //!     Err(e) => println!("Error: {:?}", e),
 //! }
@@ -38,7 +38,10 @@ pub enum ComparatorError {
 impl std::fmt::Display for ComparatorError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ComparatorError::InvalidNumChannels => write!(f, "Impossible to align the provided spike train with the reference."),
+            ComparatorError::InvalidNumChannels => write!(
+                f,
+                "Impossible to align the provided spike train with the reference."
+            ),
         }
     }
 }
@@ -47,7 +50,7 @@ impl std::fmt::Display for ComparatorError {
 #[derive(Debug, PartialEq)]
 pub struct Comparator<'a> {
     /// The reference (periodic) spike train.
-    ref_times: &'a Vec<Vec<f64>>,
+    ref_trains: &'a Vec<Vec<f64>>,
     /// The period of the reference spike train.
     period: f64,
     /// The number of channels in the reference spike train.
@@ -55,157 +58,113 @@ pub struct Comparator<'a> {
 }
 
 impl<'a> Comparator<'a> {
+    /// The factor used to compute the optimal shift for precision and recall.
+    const SHIFT_FACTOR: f64 = 1_000_000.0;
 
     /// Create a new `Comparator` instance with the given reference spike train and period.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `ref_times` - The reference spike train.
-    /// * `period` - The period of the reference spike train.
-    /// 
-    /// # Returns
-    /// 
-    /// A new `Comparator` instance.
-    pub fn new(
-        ref_times: &'a Vec<Vec<f64>>,
-        period: f64,
-    ) -> Comparator<'a> {
-
+    pub fn new(ref_trains: &'a Vec<Vec<f64>>, period: f64) -> Comparator<'a> {
         Comparator {
-            ref_times,
+            ref_trains,
             period,
-            num_channels: ref_times.len(),
+            num_channels: ref_trains.len(),
         }
     }
 
     /// Calculate the minimum distance between two points on a circular modulo space.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `x` - The first point.
-    /// * `y` - The second point.
-    /// * `modulo` - The modulo value representing the circular space.
-    /// 
-    /// # Returns
-    /// 
-    /// The minimum distance between `x` and `y` in the modulo space.
     fn mod_dist(x: f64, y: f64, modulo: f64) -> f64 {
         let diff1 = (x - y).rem_euclid(modulo);
         let diff2 = (y - x).rem_euclid(modulo);
         diff1.min(diff2)
     }
 
-    /// Calculate the precision of the simulated spike train with respect to the reference spike train.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `sim_times` - The simulated spike train.
-    /// 
-    /// # Returns
-    /// 
-    /// The precision of the simulated spike train with respect to the reference spike train.
-    pub fn precision(&self, sim_times: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
-        if sim_times.len() != self.num_channels {
+    /// Calculate the precision of a spike train with respect to the reference.
+    pub fn precision(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
+        if trains.len() != self.num_channels {
             return Err(ComparatorError::InvalidNumChannels);
         }
 
         let shifts = self
-            .ref_times
+            .ref_trains
             .iter()
-            .zip_eq(sim_times.iter())
-            .flat_map(|(rts, sts)| {
-                rts.iter()
-                    .cartesian_product(sts.iter())
-                    .map(|(rt, st)| st - rt)
+            .zip_eq(trains.iter())
+            .flat_map(|(ref_train, train)| {
+                ref_train
+                    .iter()
+                    .cartesian_product(train.iter())
+                    .map(|(ref_t, t)| t - ref_t)
             })
-            .unique_by(|&x| (x.rem_euclid(self.period) * 1_000_000.0_f64) as i64);
+            .unique_by(|&x| (x.rem_euclid(self.period) * Self::SHIFT_FACTOR) as i32);
 
         let best_shift = shifts.max_by_key(|shift| {
-            (self.precision_objective(sim_times, *shift) * 1_000_000.0_f64) as i64
+            (self.precision_objective(trains, *shift) * Self::SHIFT_FACTOR) as i32
         });
 
         match best_shift {
             Some(best_shift) => {
-                Ok(self.precision_objective(sim_times, best_shift) / self.num_channels as f64)
-            },
-            // If there are no shifts at all, count the number of channels which are pairs of empty spike trains
-            None => {
-                Ok(self.ref_times
-                    .iter()
-                    .zip_eq(sim_times.iter())
-                    .filter(|(rts, sts)| rts.is_empty() && sts.is_empty())
-                    .count() as f64
-                    / self.num_channels as f64)
+                Ok(self.precision_objective(trains, best_shift) / self.num_channels as f64)
             }
+            // If there are no shifts at all, count the number of channels which are pairs of empty spike trains
+            None => Ok(self
+                .ref_trains
+                .iter()
+                .zip_eq(trains.iter())
+                .filter(|(ref_train, train)| ref_train.is_empty() && train.is_empty())
+                .count() as f64
+                / self.num_channels as f64),
         }
     }
 
-    /// Calculate the recall of the simulated spike train with respect to the reference spike train.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `sim_times` - The simulated spike train.
-    /// 
-    /// # Returns
-    /// 
-    /// The recall of the simulated spike train with respect to the reference spike train.
-    pub fn recall(&self, sim_times: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
-        if sim_times.len() != self.num_channels {
+    /// Calculate the recall of a spike train with respect to the reference.
+    pub fn recall(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
+        if trains.len() != self.num_channels {
             return Err(ComparatorError::InvalidNumChannels);
         }
 
+        // Create an iterator over all candidate shifts
         let shifts = self
-            .ref_times
+            .ref_trains
             .iter()
-            .zip_eq(sim_times.iter())
-            .flat_map(|(rts, sts)| {
-                rts.iter()
-                    .cartesian_product(sts.iter())
-                    .map(|(rt, st)| st - rt)
+            .zip_eq(trains.iter())
+            .flat_map(|(ref_train, train)| {
+                ref_train
+                    .iter()
+                    .cartesian_product(train.iter())
+                    .map(|(ref_t, t)| t - ref_t)
             })
-            .unique_by(|&x| (x.rem_euclid(self.period) * 1_000_000.0_f64) as i64);
+            // Reduce the shift precision before dropping the duplicated shift to improve performance
+            .unique_by(|&x| (x.rem_euclid(self.period) * Self::SHIFT_FACTOR) as i32);
 
         let best_shift = shifts.max_by_key(|shift| {
-            (self.recall_objective(sim_times, *shift) * 1_000_000.0_f64) as i64
+            (self.recall_objective(trains, *shift) * Self::SHIFT_FACTOR) as i32
         });
 
         match best_shift {
             Some(best_shift) => {
-                Ok(self.recall_objective(sim_times, best_shift) / self.num_channels as f64)
-            },
-            // If there are no shifts at all, count the number of channels which are pairs of empty spike trains
-            None => {
-                Ok(self.ref_times
-                    .iter()
-                    .zip_eq(sim_times.iter())
-                    .filter(|(rts, sts)| rts.is_empty() && sts.is_empty())
-                    .count() as f64
-                    / self.num_channels as f64)
+                Ok(self.recall_objective(trains, best_shift) / self.num_channels as f64)
             }
+            // If there is no shift at all, count the number of channels which are pairs of empty spike trains
+            None => Ok(self
+                .ref_trains
+                .iter()
+                .zip_eq(trains.iter())
+                .filter(|(ref_train, train)| ref_train.is_empty() && train.is_empty())
+                .count() as f64
+                / self.num_channels as f64),
         }
     }
 
-    /// Calculate the (unormalized) precision objective function between for a given shift of the simulated spike train.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `sim_times` - The simulated spike train.
-    /// * `shift` - The shift of the simulated spike train.
-    /// 
-    /// # Returns
-    /// 
-    /// The (unormalized) precision objective function for the given shift.
-    fn precision_objective(&self, sim_times: &Vec<Vec<f64>>, shift: f64) -> f64 {
+    /// Calculate the (unormalized) precision objective function of the shifted spike train with respect to the reference.
+    fn precision_objective(&self, trains: &Vec<Vec<f64>>, shift: f64) -> f64 {
         let mut objective = 0.0;
-        for (rts, sts) in self.ref_times.iter().zip_eq(sim_times.iter()) {
-            objective += match sts.is_empty() {
+        for (ref_train, train) in self.ref_trains.iter().zip_eq(trains.iter()) {
+            objective += match train.is_empty() {
                 true => 1.0,
                 false => {
-                    let tmp = rts
+                    let tmp = ref_train
                         .iter()
-                        .cartesian_product(sts.iter())
-                        .map(|(rt, st)| {
-                            let mod_dist = Comparator::mod_dist(*rt, *st - shift, self.period);
+                        .cartesian_product(train.iter())
+                        .map(|(ref_t, t)| {
+                            let mod_dist = Comparator::mod_dist(*ref_t, *t - shift, self.period);
                             if mod_dist < 0.5 {
                                 1.0 - 2.0 * mod_dist
                             } else {
@@ -213,34 +172,25 @@ impl<'a> Comparator<'a> {
                             }
                         })
                         .sum::<f64>();
-                    tmp / sts.len() as f64
+                    tmp / train.len() as f64
                 }
             }
         }
         objective
     }
 
-    /// Calculate the (unormalized) recall objective function between for a given shift of the simulated spike train.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `sim_times` - The simulated spike train.
-    /// * `shift` - The shift of the simulated spike train.
-    /// 
-    /// # Returns
-    /// 
-    /// The (unormalized) recall objective function for the given shift.
-    fn recall_objective(&self, sim_times: &Vec<Vec<f64>>, shift: f64) -> f64 {
+    /// Calculate the (unormalized) recall objective function of the shifted spike train with respect to the reference.    
+    fn recall_objective(&self, trains: &Vec<Vec<f64>>, shift: f64) -> f64 {
         let mut objective = 0.0;
-        for (rts, sts) in self.ref_times.iter().zip_eq(sim_times.iter()) {
-            objective += match rts.is_empty() {
+        for (ref_train, train) in self.ref_trains.iter().zip_eq(trains.iter()) {
+            objective += match ref_train.is_empty() {
                 true => 1.0,
                 false => {
-                    let tmp = rts
+                    let tmp = ref_train
                         .iter()
-                        .cartesian_product(sts.iter())
-                        .map(|(rt, st)| {
-                            let mod_dist = Comparator::mod_dist(*rt, *st - shift, self.period);
+                        .cartesian_product(train.iter())
+                        .map(|(ref_t, t)| {
+                            let mod_dist = Comparator::mod_dist(*ref_t, *t - shift, self.period);
                             if mod_dist < 0.5 {
                                 1.0 - 2.0 * mod_dist
                             } else {
@@ -248,7 +198,7 @@ impl<'a> Comparator<'a> {
                             }
                         })
                         .sum::<f64>();
-                    tmp / rts.len() as f64
+                    tmp / ref_train.len() as f64
                 }
             }
         }
@@ -257,9 +207,9 @@ impl<'a> Comparator<'a> {
 }
 
 /// Tests for the `Comparator` struct.
-/// 
+///
 /// # Tests
-/// 
+///
 /// * Test the `mod_dist` function.
 /// * Test the `precision_objective` function with empty spike trains.
 /// * Test the `precision_objective` function with non-empty spike trains.
@@ -270,7 +220,7 @@ impl<'a> Comparator<'a> {
 /// * Test the `recall` function with empty spike trains.
 /// * Test the `recall` function with non-empty spike trains.
 #[cfg(test)]
-mod tests {
+mod tetrain {
     use super::*;
 
     #[test]
@@ -284,20 +234,20 @@ mod tests {
 
     #[test]
     fn test_objective_empty() {
-        let ref_times = vec![vec![]];
-        let comparator = Comparator::new(&ref_times, 5.0);
+        let ref_trains = vec![vec![]];
+        let comparator = Comparator::new(&ref_trains, 5.0);
         let times = vec![vec![]];
         assert_eq!(comparator.precision_objective(&times, 0.0), 1.0);
         assert_eq!(comparator.recall_objective(&times, 0.0), 1.0);
 
-        let ref_times = vec![vec![]];
-        let comparator = Comparator::new(&ref_times, 5.0);
+        let ref_trains = vec![vec![]];
+        let comparator = Comparator::new(&ref_trains, 5.0);
         let times = vec![vec![1.0, 2.25, 3.5, 4.75]];
         assert_eq!(comparator.precision_objective(&times, 0.0), 0.0);
         assert_eq!(comparator.recall_objective(&times, 0.0), 1.0);
 
-        let ref_times = vec![vec![1.0, 2.25, 3.5, 4.75]];
-        let comparator = Comparator::new(&ref_times, 5.0);
+        let ref_trains = vec![vec![1.0, 2.25, 3.5, 4.75]];
+        let comparator = Comparator::new(&ref_trains, 5.0);
         let times = vec![vec![]];
         assert_eq!(comparator.precision_objective(&times, 0.0), 1.0);
         assert_eq!(comparator.recall_objective(&times, 0.0), 0.0);
@@ -306,8 +256,8 @@ mod tests {
     #[test]
     fn test_precision_objective() {
         // single channel
-        let ref_times = vec![vec![0.75, 2.0, 3.25, 4.5]];
-        let comparator = Comparator::new(&ref_times, 6.0);
+        let ref_trains = vec![vec![0.75, 2.0, 3.25, 4.5]];
+        let comparator = Comparator::new(&ref_trains, 6.0);
 
         let times = vec![vec![0.75, 2.0, 3.25, 4.5]];
         assert_eq!(comparator.precision_objective(&times, 0.0), 1.0);
@@ -325,8 +275,8 @@ mod tests {
         assert_eq!(comparator.precision_objective(&times, 0.0), 1.0);
 
         // multiple channels
-        let ref_times = vec![vec![1.0, 3.25, 2.0], vec![1.5, 3.0], vec![3.5, 1.25]];
-        let comparator = Comparator::new(&ref_times, 4.0);
+        let ref_trains = vec![vec![1.0, 3.25, 2.0], vec![1.5, 3.0], vec![3.5, 1.25]];
+        let comparator = Comparator::new(&ref_trains, 4.0);
 
         let times = vec![vec![1.25, 3.5, 2.25], vec![1.75, 3.25], vec![3.75, 1.5]];
         assert_eq!(comparator.precision_objective(&times, 0.0), 1.5);
@@ -338,8 +288,8 @@ mod tests {
     #[test]
     fn test_recall_objective() {
         // single channel
-        let ref_times = vec![vec![0.75, 2.0, 3.25, 4.5]];
-        let comparator = Comparator::new(&ref_times, 6.0);
+        let ref_trains = vec![vec![0.75, 2.0, 3.25, 4.5]];
+        let comparator = Comparator::new(&ref_trains, 6.0);
 
         let times = vec![vec![0.75, 2.0, 3.25, 4.5]];
         assert_eq!(comparator.recall_objective(&times, 0.0), 1.0);
@@ -357,8 +307,8 @@ mod tests {
         assert_eq!(comparator.recall_objective(&times, 0.0), 0.75);
 
         // multiple channels
-        let ref_times = vec![vec![1.0, 3.25, 2.0], vec![1.5, 3.0], vec![3.5, 1.25]];
-        let comparator = Comparator::new(&ref_times, 4.0);
+        let ref_trains = vec![vec![1.0, 3.25, 2.0], vec![1.5, 3.0], vec![3.5, 1.25]];
+        let comparator = Comparator::new(&ref_trains, 4.0);
 
         let times = vec![vec![1.25, 3.5, 2.25], vec![1.75, 3.25], vec![3.75, 1.5]];
         assert_eq!(comparator.recall_objective(&times, 0.0), 1.5);
@@ -366,30 +316,40 @@ mod tests {
         let times = vec![vec![1.25, 3.5, 2.25], vec![1.75, 3.25], vec![3.75, 1.5]];
         assert_eq!(comparator.recall_objective(&times, 0.25), 3.0);
     }
-    
-        #[test]
-        fn test_precision() {
-            let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 10];
-            let comparator = Comparator::new(&ref_times, 100.0);
-            let times:Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
-            assert_eq!(comparator.precision(&times), Err(ComparatorError::InvalidNumChannels));
-    
-            let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
-            let comparator = Comparator::new(&ref_times, 100.0);
-            let times:Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
-            assert_eq!(comparator.precision(&times), Ok(1.0));
-        }
+
+    #[test]
+    fn test_precision() {
+        let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 10];
+        let comparator = Comparator::new(&ref_trains, 100.0);
+        let times: Vec<Vec<f64>> =
+            vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
+        assert_eq!(
+            comparator.precision(&times),
+            Err(ComparatorError::InvalidNumChannels)
+        );
+
+        let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
+        let comparator = Comparator::new(&ref_trains, 100.0);
+        let times: Vec<Vec<f64>> =
+            vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
+        assert_eq!(comparator.precision(&times), Ok(1.0));
+    }
 
     #[test]
     fn test_recall() {
-        let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 10];
-        let comparator = Comparator::new(&ref_times, 100.0);
-        let times:Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
-        assert_eq!(comparator.precision(&times), Err(ComparatorError::InvalidNumChannels));
+        let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 10];
+        let comparator = Comparator::new(&ref_trains, 100.0);
+        let times: Vec<Vec<f64>> =
+            vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
+        assert_eq!(
+            comparator.precision(&times),
+            Err(ComparatorError::InvalidNumChannels)
+        );
 
-        let ref_times:Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
-        let comparator = Comparator::new(&ref_times, 100.0);
-        let times:Vec<Vec<f64>> = vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
+        let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
+        let comparator = Comparator::new(&ref_trains, 100.0);
+        let times: Vec<Vec<f64>> =
+            vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
         assert_eq!(comparator.recall(&times), Ok(1.0));
     }
 }
