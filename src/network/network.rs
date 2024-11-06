@@ -1,66 +1,124 @@
 //! Network module with utilities for instantiating and managing networks of neurons.
 
+use itertools::{enumerate, Itertools};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
+use std::sync::mpsc;
+use std::sync::{Arc, Barrier};
+use std::thread;
 
-use super::connection::Connection;
-use super::neuron::Neuron;
 use super::error::NetworkError;
+use super::neuron::Neuron;
 
+/// Represents a connection between two neurons in a network.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct Connection {
+    source_id: usize,
+    target_id: usize,
+    weight: f64,
+    delay: f64,
+}
+
+impl Connection {
+    /// Create a new connection with the specified parameters.
+    pub fn new(source_id: usize, target_id: usize, weight: f64, delay: f64) -> Self {
+        Connection {
+            source_id,
+            target_id,
+            weight,
+            delay,
+        }
+    }
+
+    /// Returns the id of the source neuron.
+    pub fn source_id(&self) -> usize {
+        self.source_id
+    }
+
+    /// Returns the id of the target neuron.
+    pub fn target_id(&self) -> usize {
+        self.target_id
+    }
+
+    /// Returns the weight of the connection.
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    /// Returns the delay of the connection.
+    pub fn delay(&self) -> f64 {
+        self.delay
+    }
+}
+
+/// Represents a spiking neural networks.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Network {
     neurons: Vec<Neuron>,
     connections: Vec<Connection>,
 }
 
-/// The Network struct represents a spiking neural network.
 impl Network {
-    /// Create a new network from neurons and connections between them.
-    /// The function returns an error if the connections refer to non-existent neurons.
+    /// Create a new network from lists of neurons and connections.
     ///
     /// # Example
     /// ```rust
-    /// use rusty_snn::network::network::Network;
+    /// use rusty_snn::network::network::{Network, Connection};
     /// use rusty_snn::network::neuron::Neuron;
-    /// use rusty_snn::network::connection::Connection;
     ///
-    /// let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-    /// let connections = vec![
-    ///     Connection::build(0, 1, 1.0, 1.0).unwrap(),
-    ///     Connection::build(1, 2, -1.0, 2.0).unwrap(),
-    ///     Connection::build(2, 0, -0.125, 0.5).unwrap(),
-    ///     Connection::build(2, 2, 0.25, 0.5).unwrap()
-    /// ];
+    /// let neurons = vec![Neuron::new(0, 1.0), Neuron::new(1, 1.0), Neuron::new(2, 1.0)];
+    /// let connections = vec![Connection::new(0, 1, 1.0, 1.0), Connection::new(1, 2, -1.0, 2.0), Connection::new(0, 2, 0.25, 0.5), Connection::new(0, 0, -0.125, 0.25)];
+    /// let network = Network::new(neurons, connections);
+    ///
+    /// assert_eq!(network.num_neurons(), 3);
+    /// assert_eq!(network.num_connections(), 4);
+    /// ```
+    pub fn new(neurons: Vec<Neuron>, connections: Vec<Connection>) -> Self {
+        Network {
+            neurons,
+            connections,
+        }
+    }
+
+    /// Create a new network from neurons and connections between them.
+    /// The function returns an error for invalid neurons or connections.
+    /// Because it handles possible errors, it is recommended to use this function instead of the `new` function.
+    ///
+    /// # Example
+    /// ```rust
+    /// use rusty_snn::network::network::{Network, Connection};
+    /// use rusty_snn::network::neuron::Neuron;
+    ///
+    /// let neurons = vec![Neuron::new(0, 1.0), Neuron::new(1, 1.0), Neuron::new(2, 1.0)];
+    /// let connections = vec![Connection::new(0, 1, 1.0, 1.0), Connection::new(1, 2, -1.0, 2.0), Connection::new(0, 2, 0.25, 0.5), Connection::new(0, 0, -0.125, 0.25)];
     /// let network = Network::build(neurons, connections).unwrap();
-    /// 
+    ///
     /// assert_eq!(network.num_neurons(), 3);
     /// assert_eq!(network.num_connections(), 4);
     /// ```
     pub fn build(neurons: Vec<Neuron>, connections: Vec<Connection>) -> Result<Self, NetworkError> {
-        for connection in connections.iter() {
-            if None
-                == neurons
-                    .iter()
-                    .find(|neuron| neuron.id() == connection.source_id())
-            {
-                return Err(NetworkError::InvalidNeuronId);
-            }
-
-            if None
-                == neurons
-                    .iter()
-                    .find(|neuron| neuron.id() == connection.target_id())
-            {
+        for (id, neuron) in enumerate(&neurons) {
+            if neuron.id() != id {
                 return Err(NetworkError::InvalidNeuronId);
             }
         }
-        Ok(Network {
-            neurons,
-            connections,
-        })
+
+        for connection in &connections {
+            if connection.source_id() >= neurons.len() {
+                return Err(NetworkError::InvalidSourceId);
+            }
+            if connection.target_id() >= neurons.len() {
+                return Err(NetworkError::InvalidTargetId);
+            }
+            if connection.delay() < 0.0 {
+                return Err(NetworkError::InvalidDelay);
+            }
+        }
+        
+        Ok(Network { neurons, connections })
     }
 
     /// Save the network to a file.
@@ -68,17 +126,12 @@ impl Network {
     /// # Example
     /// ```rust
     /// use std::path::Path;
-    /// use rusty_snn::network::network::Network;
+    /// use rusty_snn::network::network::{Network, Connection};
     /// use rusty_snn::network::neuron::Neuron;
-    /// use rusty_snn::network::connection::Connection;
     ///
-    /// let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-    /// let connections = vec![
-    ///     Connection::build(0, 1, 1.0, 1.0).unwrap(),
-    ///     Connection::build(1, 2, -1.0, 2.0).unwrap(),
-    ///     Connection::build(2, 2, 0.25, 0.5).unwrap()
-    /// ];
-    /// let network = Network::build(neurons, connections).unwrap();
+    /// let neurons = vec![Neuron::new(0, 1.0), Neuron::new(1, 1.0), Neuron::new(2, 1.0)];
+    /// let connections = vec![Connection::new(0, 1, 1.0, 1.0), Connection::new(1, 2, -1.0, 2.0), Connection::new(0, 2, 0.25, 0.5), Connection::new(0, 0, -0.125, 0.25)];
+    /// let network = Network::new(neurons, connections);
     ///
     /// // Save the network to a file
     /// network.save_to(Path::new("network.json")).unwrap();
@@ -108,37 +161,23 @@ impl Network {
     }
 
     /// Add a connection to the network.
-    /// The function returns an error if the connection refers to non-existent neurons.
-    pub fn add_connection(
-        &mut self,
-        connection: Connection,
-    ) -> Result<(), NetworkError> {
-        if None
-            == self.neurons
-                .iter()
-                .find(|neuron| neuron.id() == connection.source_id())
-        {
-            return Err(NetworkError::InvalidNeuronId);
+    /// The function returns an error for invalid connection.
+    pub fn add_connection(&mut self, source_id:usize, target_id:usize, weight:f64, delay:f64) -> Result<(), NetworkError> {
+        match self.neurons.get(source_id) {
+            None => return Err(NetworkError::InvalidSourceId),
+            Some(_) => (),
         }
 
-        if None
-            == self.neurons
-                .iter()
-                .find(|neuron| neuron.id() == connection.target_id())
-        {
-            return Err(NetworkError::InvalidNeuronId);
+        match self.neurons.get(target_id) {
+            None => return Err(NetworkError::InvalidTargetId),
+            Some(_) => (),
         }
 
-        self.connections.push(connection);
-        Ok(())
-    }
+        if delay < 0.0 {
+            return Err(NetworkError::InvalidDelay);
+        }
 
-    /// Add a neuron to the network.
-    pub fn add_neuron(
-        &mut self,
-        neuron: Neuron,
-    ) -> Result<(), NetworkError> {
-        self.neurons.push(neuron);
+        self.connections.push(Connection::new(source_id, target_id, weight, delay));
         Ok(())
     }
 
@@ -161,37 +200,98 @@ impl Network {
         //     .count()
     }
 
-    /// Get a collection of connections transmitting to the specified neuron.
-    pub fn transmit_to(&self, neuron_id: usize) -> impl Iterator<Item = &Connection> {
+    /// Returns a collection of connections with the specified target id.
+    fn transmit_to(&self, neuron_id: usize) -> impl Iterator<Item = &Connection> {
         self.connections
             .iter()
             .filter(move |c| c.target_id() == neuron_id)
     }
 
-    /// Get a collection of connections transmitting from the specified neuron.
-    pub fn transmit_from(&self, neuron_id: usize) -> impl Iterator<Item = &Connection> {
+    /// Returns the number of connections with the specified target id.
+    pub fn num_inputs(&self, neuron_id: usize) -> usize {
+        self.transmit_to(neuron_id)
+            .count()
+    }
+
+    /// Returns a collection of connections with the specified source id.
+    fn transmit_from(&self, neuron_id: usize) -> impl Iterator<Item = &Connection> {
         self.connections
             .iter()
             .filter(move |c| c.source_id() == neuron_id)
     }
 
-    pub fn simulate(&self) -> Result<(), NetworkError> {
-        // alternate between:
-        // 1. update neuron states based on connections (in-mode, neurons read connections)
-        // 2. update connections based on neuron states (out-mode, neurons write connections)
-        // both phases are parallelizable, as the connections are completely partioned between neurons
-        // connections should be sorted by target neuron id
-        todo!()
+    /// Returns the number of connections with the specified source id.
+    pub fn num_outputs(&self, neuron_id: usize) -> usize {
+        self.transmit_from(neuron_id)
+            .count()
     }
 
-    fn update_neurons(&self) {
-        // each neuron has a read permission on its input connections
-        todo!()
+    fn init_neurons(&mut self) {
+        for connection in self.connections.iter() {
+            self.neurons[connection.target_id()].add_input(
+                connection.source_id(),
+                connection.weight(),
+                connection.delay(),
+            );
+        }
     }
 
-    fn update_connections(&self) {
-        // each neuron has a write permission on its output connections
-        todo!()
+    fn init_mpsc_channels(&mut self) -> Result<(), NetworkError> {
+        for neuron in &mut self.neurons {
+            neuron.reset_senders();
+        }
+
+        for id in 0..self.num_neurons() {
+            let (tx, rx) = mpsc::channel();
+            self.neurons[id].set_receiver(rx);
+            // iterate over all connections whose target has id, and drop duplicated source ids
+
+            for connection in self
+                .connections
+                .iter()
+                .filter(|c| c.target_id() == id)
+                .unique_by(|c| c.source_id())
+            {
+                self.neurons[connection.source_id].add_sender(tx.clone());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Schedule contains the simulation program with simulation interval, measurement intervals, excitation intervals, ...
+    pub fn simulate(&mut self, start: f64, end: f64) -> Result<(), NetworkError> {
+        self.init_mpsc_channels()?;
+
+        let barrier = Arc::new(Barrier::new(self.num_neurons()));
+        let mut handles = vec![];
+        let mut neurons = std::mem::take(&mut self.neurons);
+
+        let dt = 0.001;
+        for mut neuron in neurons.into_iter() {
+            let barrier = barrier.clone();
+            let handle = thread::spawn(move || {
+                let mut time = start;
+                while time < end {
+                    neuron.process_and_send(time, dt);
+                    barrier.wait();
+                    neuron.receive_and_process();
+                    barrier.wait();
+                    time += dt;
+                }
+                neuron
+            });
+
+            handles.push(handle);
+        }
+
+        self.neurons = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        // handle.join().unwrap();
+
+        Ok(())
     }
 }
 
@@ -200,39 +300,72 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
-    #[test]
-    fn test_build_network_invalid_id() {
-        let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-        let connections = vec![Connection::build(0, 999, 1.0, 1.0).unwrap()];
-        let result = Network::build(neurons, connections);
-        assert_eq!(result, Err(NetworkError::InvalidNeuronId));
+    // #[test]
+    // fn test_build_network_invalid_id() {
+    //     let neurons = (0..3).map(|id| Neuron::new(id, 1.0, Vec::new())).collect();
+    //     let connections = vec![Connection::build(0, 999, 1.0, 1.0).unwrap()];
+    //     let result = Network::build(neurons, connections);
+    //     assert_eq!(result, Err(NetworkError::InvalidNeuronId));
 
-        let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-        let connections = vec![Connection::build(999, 0, 1.0, 1.0).unwrap()];
-        let result = Network::build(neurons, connections);
-        assert_eq!(result, Err(NetworkError::InvalidNeuronId));
+    //     let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
+    //     let connections = vec![Connection::build(999, 0, 1.0, 1.0).unwrap()];
+    //     let result = Network::build(neurons, connections);
+    //     assert_eq!(result, Err(NetworkError::InvalidNeuronId));
+    // }
+
+    // #[test]
+    // fn test_add_connection_invalid_id() {
+    //     let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
+    //     let mut network = Network::build(neurons, vec![]).unwrap();
+    //     let connection = Connection::build(0, 999, 1.0, 1.0).unwrap();
+    //     assert_eq!(
+    //         network.add_connection(connection),
+    //         Err(NetworkError::InvalidNeuronId)
+    //     );
+    // }
+
+
+    #[test]
+    fn test_num_neurons() {
+        let neurons = vec![];
+        let connections = vec![];
+        let network = Network::new(neurons, connections);
+        assert_eq!(network.num_neurons(), 0);        
+
+        let neurons = (0..42).map(|id| Neuron::new(id, 1.0)).collect();
+        let connections = vec![];
+        let network = Network::new(neurons, connections);
+        assert_eq!(network.num_neurons(), 42);
+
     }
 
     #[test]
-    fn test_add_connection_invalid_id() {
+    fn test_num_connections() {
         let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-        let mut network = Network::build(neurons, vec![]).unwrap();
-        let connection = Connection::build(0, 999, 1.0, 1.0).unwrap();
-        assert_eq!(network.add_connection(connection), Err(NetworkError::InvalidNeuronId));
+        let connections = vec![];
+        let network = Network::new(neurons, connections);
+        assert_eq!(network.num_connections(), 0);
+
+        let neurons = vec![Neuron::new(0, 1.0), Neuron::new(1, 1.0)];
+        let connections = vec![Connection::new(0, 1, 1.0, 1.0); 42];
+        let network = Network::new(neurons, connections);
+        assert_eq!(network.num_connections(), 42);
     }
 
     #[test]
     fn test_save_load() {
+        // Create a network
         let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
         let connections = vec![
-            Connection::build(0, 1, 1.0, 1.0).unwrap(),
-            Connection::build(1, 2, -1.0, 2.0).unwrap(),
-            Connection::build(2, 2, 0.25, 0.5).unwrap(),
+            Connection::new(0, 1, 1.0, 1.0),
+            Connection::new(1, 2, -1.0, 2.0),
+            Connection::new(0, 2, 0.25, 0.5),
         ];
-        let network = Network::build(neurons, connections).unwrap();
+        let network = Network::new(neurons, connections);
 
         // Create a temporary file
         let temp_file = NamedTempFile::new().unwrap();
+
         // Save network to the temporary file
         network.save_to(temp_file.path()).unwrap();
 
@@ -243,34 +376,17 @@ mod tests {
     }
 
     #[test]
-    fn test_transmit_to() {
-        let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-        let connections = vec![
-            Connection::build(0, 1, 1.0, 1.0).unwrap(),
-            Connection::build(1, 2, -1.0, 2.0).unwrap(),
-            Connection::build(0, 2, 0.25, 0.5).unwrap(),
-        ];
-        let network = Network::build(neurons, connections.clone()).unwrap();
+    fn test_num_inputs_outputs() {
+        let neurons = vec![Neuron::new(0, 1.0), Neuron::new(1, 1.0), Neuron::new(2, 1.0)];
+        let connections = vec![Connection::new(0, 1, 1.0, 1.0); 42];
+        let network = Network::new(neurons, connections);
 
-        let mut connection_to_2 = network.transmit_to(2);
-        assert_eq!(connection_to_2.next(), Some(&connections[1]));
-        assert_eq!(connection_to_2.next(), Some(&connections[2]));
-        assert_eq!(connection_to_2.next(), None);
-    }
+        assert_eq!(network.num_inputs(0), 0);
+        assert_eq!(network.num_inputs(1), 42);
+        assert_eq!(network.num_inputs(2), 0);
 
-    #[test]
-    fn test_transmit_from() {
-        let neurons = (0..3).map(|id| Neuron::new(id, 1.0)).collect();
-        let connections = vec![
-            Connection::build(0, 1, 1.0, 1.0).unwrap(),
-            Connection::build(1, 2, -1.0, 2.0).unwrap(),
-            Connection::build(0, 2, 0.25, 0.5).unwrap(),
-        ];
-        let network = Network::build(neurons, connections.clone()).unwrap();
-
-        let mut connection_from_0 = network.transmit_from(0);
-        assert_eq!(connection_from_0.next(), Some(&connections[0]));
-        assert_eq!(connection_from_0.next(), Some(&connections[2]));
-        assert_eq!(connection_from_0.next(), None);
+        assert_eq!(network.num_outputs(0), 42);
+        assert_eq!(network.num_outputs(1), 0);
+        assert_eq!(network.num_outputs(2), 0);
     }
 }

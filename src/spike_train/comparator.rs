@@ -26,25 +26,9 @@
 //!     Err(e) => println!("Error: {:?}", e),
 //! }
 //! ```
+
 use itertools::Itertools;
-
-/// Error type for the `Comparator` struct.
-#[derive(Debug, PartialEq)]
-pub enum ComparatorError {
-    /// Returned when the numbers of channels in the spike trains to compare don't match.
-    InvalidNumChannels,
-}
-
-impl std::fmt::Display for ComparatorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ComparatorError::InvalidNumChannels => write!(
-                f,
-                "Impossible to align the provided spike train with the reference."
-            ),
-        }
-    }
-}
+use super::error::SpikeTrainError;
 
 /// Represents a comparator for spike trains.
 #[derive(Debug, PartialEq)]
@@ -78,9 +62,10 @@ impl<'a> Comparator<'a> {
     }
 
     /// Calculate the precision of a spike train with respect to the reference.
-    pub fn precision(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
+    /// Returns an error if the number of channels in the spike trains to compare don't match.
+    pub fn precision(&self, trains: &Vec<Vec<f64>>) -> Result<f64, SpikeTrainError> {
         if trains.len() != self.num_channels {
-            return Err(ComparatorError::InvalidNumChannels);
+            return Err(SpikeTrainError::IncompatibleSpikeTrains);
         }
 
         let shifts = self
@@ -115,9 +100,10 @@ impl<'a> Comparator<'a> {
     }
 
     /// Calculate the recall of a spike train with respect to the reference.
-    pub fn recall(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
+    /// Returns an error if the number of channels in the spike trains to compare don't match.
+    pub fn recall(&self, trains: &Vec<Vec<f64>>) -> Result<f64, SpikeTrainError> {
         if trains.len() != self.num_channels {
-            return Err(ComparatorError::InvalidNumChannels);
+            return Err(SpikeTrainError::IncompatibleSpikeTrains);
         }
 
         // Create an iterator over all candidate shifts
@@ -206,21 +192,8 @@ impl<'a> Comparator<'a> {
     }
 }
 
-/// Tests for the `Comparator` struct.
-///
-/// # Tests
-///
-/// * Test the `mod_dist` function.
-/// * Test the `precision_objective` function with empty spike trains.
-/// * Test the `precision_objective` function with non-empty spike trains.
-/// * Test the `recall_objective` function with empty spike trains.
-/// * Test the `recall_objective` function with non-empty spike trains.
-/// * Test the `precision` function with empty spike trains.
-/// * Test the `precision` function with non-empty spike trains.
-/// * Test the `recall` function with empty spike trains.
-/// * Test the `recall` function with non-empty spike trains.
 #[cfg(test)]
-mod tetrain {
+mod tests {
     use super::*;
 
     #[test]
@@ -325,7 +298,7 @@ mod tetrain {
             vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
         assert_eq!(
             comparator.precision(&times),
-            Err(ComparatorError::InvalidNumChannels)
+            Err(SpikeTrainError::IncompatibleSpikeTrains)
         );
 
         let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
@@ -343,7 +316,7 @@ mod tetrain {
             vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
         assert_eq!(
             comparator.precision(&times),
-            Err(ComparatorError::InvalidNumChannels)
+            Err(SpikeTrainError::IncompatibleSpikeTrains)
         );
 
         let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];

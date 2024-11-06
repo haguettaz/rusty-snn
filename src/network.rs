@@ -2,5 +2,5 @@
 pub mod sampler;
 pub mod network;
 pub mod neuron;
-pub mod connection;
+// pub mod input;
 pub mod error;
