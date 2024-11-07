@@ -34,7 +34,7 @@ impl Input {
             source_id,
             weight,
             delay,
-            firing_times: Vec::new(),
+            firing_times: vec![],
         }
     }
 
@@ -49,7 +49,7 @@ impl Input {
             source_id,
             weight,
             delay,
-            firing_times: Vec::new(),
+            firing_times: vec![],
         })
     }
 
@@ -152,7 +152,7 @@ impl Clone for Neuron {
             firing_times: self.firing_times.clone(),
             inputs: self.inputs.clone(),
             rx: None,
-            txs: Vec::new(),
+            txs: vec![],
         }
     }
 }
@@ -162,10 +162,10 @@ impl Neuron {
         Neuron {
             id,
             threshold,
-            firing_times: Vec::new(),
-            inputs: Vec::new(),
+            firing_times: vec![],
+            inputs: vec![],
             rx: None,
-            txs: Vec::new(),
+            txs: vec![],
         }
     }
 
@@ -210,7 +210,7 @@ impl Neuron {
     }
 
     pub fn reset_senders(&mut self) {
-        self.txs = Vec::new();
+        self.txs = vec![];
     }
 
     pub fn add_sender(&mut self, tx: Sender<Message>) {
@@ -269,7 +269,7 @@ impl Neuron {
     //         Neuron {
     //             id,
     //             threshold,
-    //             firing_times: Vec::new(),
+    //             firing_times: vec![],
     //         }
     //     }
 

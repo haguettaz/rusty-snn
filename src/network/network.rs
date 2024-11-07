@@ -6,12 +6,19 @@ use serde_json;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::{Arc, Barrier};
-use std::thread;
+
+
+use tokio::sync::broadcast;
+use tokio::task;
+use tokio::time::{sleep, Duration};
+use std::sync::Arc;
+
+// use std::sync::mpsc;
+// use std::sync::{Arc, Barrier};
+// use std::thread;
 
 use super::error::NetworkError;
-use super::neuron::Neuron;
+use super::neuron::{Neuron, Message};
 
 /// Represents a connection between two neurons in a network.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -236,48 +243,74 @@ impl Network {
         }
     }
 
-    fn init_mpsc_channels(&mut self) -> Result<(), NetworkError> {
-        for neuron in &mut self.neurons {
-            neuron.reset_senders();
-        }
+    // fn init_mpsc_channels(&mut self) -> Result<(), NetworkError> {
+    //     // Is it better to use broadcast channels instead?
+    //     // A broadcast channel is use to send many values from many producers to many consumers
+    //     for neuron in &mut self.neurons {
+    //         neuron.reset_senders();
+    //     }
 
-        for id in 0..self.num_neurons() {
-            let (tx, rx) = mpsc::channel();
-            self.neurons[id].set_receiver(rx);
-            // iterate over all connections whose target has id, and drop duplicated source ids
+    //     for id in 0..self.num_neurons() {
+    //         let (tx, rx) = mpsc::channel();
+    //         self.neurons[id].set_receiver(rx);
+    //         // iterate over all connections whose target has id, and drop duplicated source ids
 
-            for connection in self
-                .connections
-                .iter()
-                .filter(|c| c.target_id() == id)
-                .unique_by(|c| c.source_id())
-            {
-                self.neurons[connection.source_id].add_sender(tx.clone());
-            }
-        }
+    //         for connection in self
+    //             .connections
+    //             .iter()
+    //             .filter(|c| c.target_id() == id)
+    //             .unique_by(|c| c.source_id())
+    //         {
+    //             self.neurons[connection.source_id].add_sender(tx.clone());
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Schedule contains the simulation program with simulation interval, measurement intervals, excitation intervals, ...
-    pub fn simulate(&mut self, start: f64, end: f64) -> Result<(), NetworkError> {
-        self.init_mpsc_channels()?;
+    #[tokio::main]
+    pub async fn run(&mut self, start: f64, end: f64) -> Result<(), NetworkError> {
 
-        let barrier = Arc::new(Barrier::new(self.num_neurons()));
+        let (tx, _) = broadcast::channel::<Message>(self.num_neurons());
+
+        let barrier = Arc::new(tokio::sync::Barrier::new(self.num_neurons()));
+
         let mut handles = vec![];
-        let mut neurons = std::mem::take(&mut self.neurons);
-
         let dt = 0.001;
-        for mut neuron in neurons.into_iter() {
+
+        for neuron in &mut self.neurons {
+            let tx = tx.clone();
+            let mut rx = tx.subscribe();
             let barrier = barrier.clone();
-            let handle = thread::spawn(move || {
-                let mut time = start;
-                while time < end {
-                    neuron.process_and_send(time, dt);
-                    barrier.wait();
-                    neuron.receive_and_process();
-                    barrier.wait();
-                    time += dt;
+
+            let handle = task::spawn(async move {
+                let mut t = start;
+                let mut last_check = start;
+                while t < end {
+                    if t - last_check > 1.0 {
+                        loop {
+                            match rx.try_recv() {
+                                Ok(msg) => {
+                                    println!("Neuron {} received new message: {:?}", neuron.id(), msg);
+                                    neuron.receive_and_process(msg);
+                                }
+                                Err(broadcast::error::TryRecvError::Empty) => break,
+                                Err(broadcast::error::TryRecvError::Closed) => return,
+                                Err(broadcast::error::TryRecvError::Lagged(_)) => {
+                                    println!("Neuron {} lagged", neuron.id());
+                                }
+                            };
+                        }
+                        last_check = t;
+                    }
+                    println!("Neuron {} is doing computation", neuron.id());
+                    if let Some(msg) = neuron.step(t) {
+                        tx.send(msg).unwrap();
+                    }
+                    
+                    t += dt;
+                    barrier.wait().await;
                 }
                 neuron
             });
@@ -285,11 +318,43 @@ impl Network {
             handles.push(handle);
         }
 
-        self.neurons = handles
-            .into_iter()
-            .map(|handle| handle.join().unwrap())
-            .collect();
-        // handle.join().unwrap();
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+
+
+
+
+        // // self.init_mpsc_channels()?;
+
+        // let barrier = Arc::new(Barrier::new(self.num_neurons()));
+        // let mut handles = vec![];
+        // let mut neurons = std::mem::take(&mut self.neurons);
+
+        // let dt = 0.001;
+        // for mut neuron in neurons.into_iter() {
+        //     let barrier = barrier.clone();
+        //     let handle = thread::spawn(move || {
+        //         let mut time = start;
+        //         while time < end {
+        //             neuron.process_and_send(time, dt);
+        //             barrier.wait();
+        //             neuron.receive_and_process();
+        //             barrier.wait();
+        //             time += dt;
+        //         }
+        //         neuron
+        //     });
+
+        //     handles.push(handle);
+        // }
+
+        // self.neurons = handles
+        //     .into_iter()
+        //     .map(|handle| handle.join().unwrap())
+        //     .collect();
+        // // handle.join().unwrap();
 
         Ok(())
     }
@@ -302,7 +367,7 @@ mod tests {
 
     // #[test]
     // fn test_build_network_invalid_id() {
-    //     let neurons = (0..3).map(|id| Neuron::new(id, 1.0, Vec::new())).collect();
+    //     let neurons = (0..3).map(|id| Neuron::new(id, 1.0, vec![])).collect();
     //     let connections = vec![Connection::build(0, 999, 1.0, 1.0).unwrap()];
     //     let result = Network::build(neurons, connections);
     //     assert_eq!(result, Err(NetworkError::InvalidNeuronId));

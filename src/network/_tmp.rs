@@ -63,7 +63,7 @@ impl Input {
             source_id,
             weight,
             delay,
-            firing_times: Vec::new(),
+            firing_times: vec![],
         }
     }
 

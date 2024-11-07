@@ -19,6 +19,7 @@
 //! assert_eq!(network.num_neurons(), 10);
 //! assert_eq!(network.num_connections(), 100);
 //! assert_eq!(network.num_inputs(0), 10);
+//! ```
 
 use super::error::NetworkError;
 use super::network::{Connection, Network};
