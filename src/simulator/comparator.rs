@@ -1,11 +1,9 @@
 //! This module provides a comparator for spike trains.
 //!
-//! The comparator is used to compare a spike train with a (periodic) reference.
-//!
 //! # Examples
 //!
 //! ```rust
-//! use rusty_snn::spike_train::comparator::Comparator;
+//! use rusty_snn::simulator::comparator::Comparator;
 //!
 //! // Create a reference spike train
 //! let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
@@ -27,8 +25,9 @@
 //! }
 //! ```
 
+
+use crate::core::REFRACTORY_PERIOD;
 use itertools::Itertools;
-use super::error::SpikeTrainError;
 
 /// Represents a comparator for spike trains.
 #[derive(Debug, PartialEq)]
@@ -63,9 +62,9 @@ impl<'a> Comparator<'a> {
 
     /// Calculate the precision of a spike train with respect to the reference.
     /// Returns an error if the number of channels in the spike trains to compare don't match.
-    pub fn precision(&self, trains: &Vec<Vec<f64>>) -> Result<f64, SpikeTrainError> {
+    pub fn precision(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
         if trains.len() != self.num_channels {
-            return Err(SpikeTrainError::IncompatibleSpikeTrains);
+            return Err(ComparatorError::IncompatibleSpikeTrains);
         }
 
         let shifts = self
@@ -101,9 +100,9 @@ impl<'a> Comparator<'a> {
 
     /// Calculate the recall of a spike train with respect to the reference.
     /// Returns an error if the number of channels in the spike trains to compare don't match.
-    pub fn recall(&self, trains: &Vec<Vec<f64>>) -> Result<f64, SpikeTrainError> {
+    pub fn recall(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
         if trains.len() != self.num_channels {
-            return Err(SpikeTrainError::IncompatibleSpikeTrains);
+            return Err(ComparatorError::IncompatibleSpikeTrains);
         }
 
         // Create an iterator over all candidate shifts
@@ -151,8 +150,8 @@ impl<'a> Comparator<'a> {
                         .cartesian_product(train.iter())
                         .map(|(ref_t, t)| {
                             let mod_dist = Comparator::mod_dist(*ref_t, *t - shift, self.period);
-                            if mod_dist < 0.5 {
-                                1.0 - 2.0 * mod_dist
+                            if mod_dist < REFRACTORY_PERIOD / 2.0 {
+                                1.0 - 2.0 * REFRACTORY_PERIOD * mod_dist
                             } else {
                                 0.0
                             }
@@ -177,8 +176,8 @@ impl<'a> Comparator<'a> {
                         .cartesian_product(train.iter())
                         .map(|(ref_t, t)| {
                             let mod_dist = Comparator::mod_dist(*ref_t, *t - shift, self.period);
-                            if mod_dist < 0.5 {
-                                1.0 - 2.0 * mod_dist
+                            if mod_dist < REFRACTORY_PERIOD / 2.0 {
+                                1.0 - 2.0 * REFRACTORY_PERIOD * mod_dist
                             } else {
                                 0.0
                             }
@@ -189,6 +188,24 @@ impl<'a> Comparator<'a> {
             }
         }
         objective
+    }
+}
+
+
+#[derive(Debug, PartialEq)]
+pub enum ComparatorError {
+    /// Error for refractory period violation, e.g., two consecutive spikes are too close.
+    RefractoryPeriodViolation,
+    /// Error for incompatible spike trains, e.g., different duration/period or number of channels.
+    IncompatibleSpikeTrains,
+}
+
+impl std::fmt::Display for ComparatorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ComparatorError::RefractoryPeriodViolation => write!(f, "Violation of the refractory period"),
+            ComparatorError::IncompatibleSpikeTrains => write!(f, "Incompatible spike trains"),
+        }
     }
 }
 
@@ -298,7 +315,7 @@ mod tests {
             vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
         assert_eq!(
             comparator.precision(&times),
-            Err(SpikeTrainError::IncompatibleSpikeTrains)
+            Err(ComparatorError::IncompatibleSpikeTrains)
         );
 
         let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];
@@ -316,7 +333,7 @@ mod tests {
             vec![(0..50).map(|i| 1.0_f64 + 2.0_f64 * i as f64).collect(); 50];
         assert_eq!(
             comparator.precision(&times),
-            Err(SpikeTrainError::IncompatibleSpikeTrains)
+            Err(ComparatorError::IncompatibleSpikeTrains)
         );
 
         let ref_trains: Vec<Vec<f64>> = vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 50];

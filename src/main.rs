@@ -1,65 +1,22 @@
-use tokio::sync::broadcast;
-use tokio::task;
-use tokio::time::{sleep, Duration};
-use std::sync::Arc;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
-#[derive(Debug, Clone)]
-struct Message {
-    source: usize,
-    value: usize,
-}
+use rusty_snn::sampler::network::{NetworkSampler, Topology};
+use rusty_snn::simulator::simulator::SimulationInterval;
+use rusty_snn::core::spike_train::SpikeTrain;
 
-#[tokio::main]
-async fn main() {
-    // Create a broadcast channel with a buffer size of 16
-    let (tx, _) = broadcast::channel(16);
+fn main() {
+    // Set the random number generator seed
+    let mut rng = StdRng::seed_from_u64(42);
 
-    // Create a barrier to synchronize the units
-    let barrier = Arc::new(tokio::sync::Barrier::new(3));
+    // Create a network sampler to generate networks with 3 neurons, 12 connections, weights in the range (-0.1, 0.1), delays in the range (0.1, 10.0), and fixed-in-degree topology.
+    let sampler = NetworkSampler::build(3, 12, (-1.0, 1.0), (0.1, 10.0), Topology::Fin).unwrap();
 
-    // Spawn computational units
-    let mut handles = vec![];
-    for i in [2,3,5].iter() {
-        let tx = tx.clone();
-        let mut rx = tx.subscribe();
-        let barrier = barrier.clone();
+    // Sample a network from the distribution
+    let mut network = sampler.sample(&mut rng);
 
-        let handle = task::spawn(async move {
-            let mut result = 0;
-            loop {
-                // Check for new messages
-                match rx.try_recv() {
-                    Ok(msg) => println!("Unit {} received new message: {:?}", i, msg),
-                    Err(broadcast::error::TryRecvError::Empty) => {
-                        // No message available, continue with computation
-                        println!("Unit {} is doing computation", i);
-                        sleep(Duration::from_millis(100)).await;
+    let neuron_control = vec![SpikeTrain::build(0, &[0.0, 2.0]).unwrap(), SpikeTrain::build(1, &[0.5, 2.5]).unwrap(), SpikeTrain::build(2, &[1.0, 2.5, 4.0]).unwrap()];
+    let details = SimulationInterval::build(0.0, 10.0, neuron_control).unwrap();
 
-                        // Perform some computation
-                        result += 1; // Example computation
-
-                        // If computation yields a specific value, send a message
-                        if result % i == 0 {
-                            println!("Unit {} sends new message from result {}", i, result);
-                            tx.send(Message {source:*i, value:result}).unwrap();
-                        }
-                    }
-                    Err(broadcast::error::TryRecvError::Closed) => break,
-                    Err(broadcast::error::TryRecvError::Lagged(_)) => {
-                        println!("Unit {} lagged", i);
-                    }
-                }
-
-                // Synchronize with other units
-                barrier.wait().await;
-            }
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all tasks to complete (and launch them)
-    for handle in handles {
-        handle.await.unwrap();
-    }
+    network.run(details, &mut rng).unwrap();
 }

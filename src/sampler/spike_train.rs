@@ -5,7 +5,7 @@
 //! ```rust
 //! use rand::rngs::StdRng;
 //! use rand::SeedableRng;
-//! use rusty_snn::spike_train::sampler::PeriodicSpikeTrainSampler;
+//! use rusty_snn::sampler::spike_train::PeriodicSpikeTrainSampler;
 //!
 //! let mut rng = StdRng::seed_from_u64(42);
 //!
