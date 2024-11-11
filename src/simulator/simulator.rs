@@ -8,18 +8,23 @@ pub struct SimulationInterval {
     start: f64,
     end: f64,
     neuron_control: Vec<SpikeTrain>,
+    threshold_noise: f64,
 }
 
 impl SimulationInterval {
     /// Create a simulation interval with the specified parameters.
     /// The function returns an error for invalid simulation intervals or control.
-    pub fn build(start: f64, end: f64, neuron_control: Vec<SpikeTrain>) -> Result<Self, SimulationError> {
+    pub fn build(start: f64, end: f64, threshold_noise:f64, neuron_control: Vec<SpikeTrain>) -> Result<Self, SimulationError> {
         if (start >= end) || !(start.is_finite() && end.is_finite()) {
             return Err(SimulationError::InvalidSimulationInterval);
         }
 
         if neuron_control.iter().flat_map(|spike_train| spike_train.firing_times().iter()).any(|&t| t < start || t >= end) {
             return Err(SimulationError::InvalidControl);
+        }
+        
+        if threshold_noise < 0.0 {
+            return Err(SimulationError::InvalidThresholdNoise);
         }
 
         let mut ids = neuron_control.iter().map(|spike_train| spike_train.id()).collect::<Vec<_>>();
@@ -28,7 +33,7 @@ impl SimulationInterval {
             return Err(SimulationError::InvalidControl);
         }
 
-        Ok(SimulationInterval { start, end, neuron_control })
+        Ok(SimulationInterval { start, end, neuron_control, threshold_noise })
     }
 
     /// Returns the start time of the simulation interval.
@@ -39,6 +44,11 @@ impl SimulationInterval {
     /// Returns the end time of the simulation interval.
     pub fn end(&self) -> f64 {
         self.end
+    }
+
+    /// Returns the threshold noise (standard deviation) of the simulation interval.
+    pub fn threshold_noise(&self) -> f64 {
+        self.threshold_noise
     }
 
     /// Returns the control times for the specified neuron.
@@ -97,6 +107,8 @@ pub enum SimulationError {
     EmptySimulationProgram,
     /// Error for non-contiguous simulation program.
     NonContiguousSimulationProgram,
+    /// Error for invalid threshold noise.
+    InvalidThresholdNoise,
     /// Error for invalid control.
     InvalidControl,
     /// Error for failed simulation.
@@ -109,6 +121,7 @@ impl std::fmt::Display for SimulationError {
             SimulationError::InvalidSimulationInterval => write!(f, "Invalid simulation interval: start must be less than end"),
             SimulationError::EmptySimulationProgram => write!(f, "Empty simulation program"),
             SimulationError::NonContiguousSimulationProgram => write!(f, "Non-contiguous simulation program"),
+            SimulationError::InvalidThresholdNoise => write!(f, "Invalid threshold noise: standard deviation must be non-negative"),
             SimulationError::InvalidControl => write!(f, "Invalid control"),
             SimulationError::SimulationFailed => write!(f, "Simulation failed"),
         }
@@ -121,22 +134,27 @@ mod tests {
 
     #[test]
     fn test_invalid_simulation_interval() {
-        assert_eq!(SimulationInterval::build(1.0, 0.0, vec![]), Err(SimulationError::InvalidSimulationInterval));
-        assert_eq!(SimulationInterval::build(0.0, 0.0, vec![]), Err(SimulationError::InvalidSimulationInterval));
-        assert_eq!(SimulationInterval::build(0.0, std::f64::INFINITY, vec![]), Err(SimulationError::InvalidSimulationInterval));
+        assert_eq!(SimulationInterval::build(1.0, 0.0, 0.0, vec![]), Err(SimulationError::InvalidSimulationInterval));
+        assert_eq!(SimulationInterval::build(0.0, 0.0, 0.0, vec![]), Err(SimulationError::InvalidSimulationInterval));
+        assert_eq!(SimulationInterval::build(0.0, std::f64::INFINITY, 0.0, vec![]), Err(SimulationError::InvalidSimulationInterval));
     }
 
     #[test]
     fn test_invalid_control() {
         let spike_train = SpikeTrain::build(1, &[0.0, 1.5]).unwrap();
-        assert_eq!(SimulationInterval::build(0.0, 1.0, vec![spike_train]), Err(SimulationError::InvalidControl));
+        assert_eq!(SimulationInterval::build(0.0, 1.0, 0.0, vec![spike_train]), Err(SimulationError::InvalidControl));
+    }
+
+    #[test]
+    fn test_invalid_noise() {
+        assert_eq!(SimulationInterval::build(0.0, 1.0, -1.0, vec![]), Err(SimulationError::InvalidThresholdNoise));
     }
 
     #[test]
     fn test_simulation_program() {
-        let interval1 = SimulationInterval::build(0.0, 1.0, vec![]).unwrap();
-        let interval2 = SimulationInterval::build(1.0, 2.0, vec![]).unwrap();
-        let interval3 = SimulationInterval::build(2.0, 3.0, vec![]).unwrap();
+        let interval1 = SimulationInterval::build(0.0, 1.0, 0.0, vec![]).unwrap();
+        let interval2 = SimulationInterval::build(1.0, 2.0, 0.0, vec![]).unwrap();
+        let interval3 = SimulationInterval::build(2.0, 3.0, 0.0, vec![]).unwrap();
         let program = SimulationProgram::build(vec![interval3, interval1, interval2]).unwrap();
         assert_eq!(program.duration(), 3.0);
         assert_eq!(program.intervals[0].start, 0.0);
@@ -149,12 +167,12 @@ mod tests {
 
     #[test]
     fn test_non_contiguous_simulation_program() {
-        let interval1 = SimulationInterval::build(0.0, 1.0, vec![]).unwrap();
-        let interval2 = SimulationInterval::build(0.5, 2.0, vec![]).unwrap();
+        let interval1 = SimulationInterval::build(0.0, 1.0, 0.0, vec![]).unwrap();
+        let interval2 = SimulationInterval::build(0.5, 2.0, 0.0, vec![]).unwrap();
         assert_eq!(SimulationProgram::build(vec![interval1, interval2]), Err(SimulationError::NonContiguousSimulationProgram));
 
-        let interval1 = SimulationInterval::build(0.0, 1.0, vec![]).unwrap();
-        let interval2 = SimulationInterval::build(1.5, 2.0, vec![]).unwrap();
+        let interval1 = SimulationInterval::build(0.0, 1.0, 0.0, vec![]).unwrap();
+        let interval2 = SimulationInterval::build(1.5, 2.0, 0.0, vec![]).unwrap();
         assert_eq!(SimulationProgram::build(vec![interval1, interval2]), Err(SimulationError::NonContiguousSimulationProgram));
     }
 }

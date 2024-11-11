@@ -7,14 +7,18 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
-use std::sync::Arc;
+use std::marker::Send;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio::task;
 
 use rand::Rng;
+use rand_distr::{Distribution, Normal};
+// use rand_core::RngCore;
 
 use super::connection::{self, Connection, ConnectionError};
 use super::neuron::Neuron;
+use crate::core::{FIRING_THRESHOLD, REFRACTORY_PERIOD};
 use crate::simulator::simulator::{SimulationError, SimulationInterval};
 use crate::simulator::TIME_STEP;
 
@@ -162,12 +166,18 @@ impl Network {
 
     /// Run the network with the provided simulation details.
     #[tokio::main]
-    pub async fn run<R: Rng>(
+    pub async fn run<R: Rng + Clone + Send + 'static>(
         &mut self,
         config: SimulationInterval,
         rng: &mut R,
     ) -> Result<(), SimulationError> {
         let num_neurons = self.num_neurons();
+        let min_delay = self
+            .connections
+            .iter()
+            .map(|c| c.delay())
+            .min_by(|a, b| a.partial_cmp(&b).unwrap())
+            .unwrap();
 
         // Take ownership of neurons
         let neurons = std::mem::take(&mut self.neurons);
@@ -177,19 +187,29 @@ impl Network {
 
         let mut handles = vec![];
 
-        println!("Setting up neurons");
-        println!("Neurons: {:?}", neurons);
+        // threshold noise
+        let rng = Arc::new(Mutex::new(rng.clone()));
+        let normal = Normal::new(0.0, config.threshold_noise()).unwrap();
+        let normal = Arc::new(normal);
 
         for mut neuron in neurons.into_iter() {
             println!("Setting up neuron {}", neuron.id());
+
+            // transmitter and receiver for neuron communication
             let tx = tx.clone();
             let mut rx = tx.subscribe();
+
+            // barrier for synchronization
             let barrier = barrier.clone();
 
+            // simulation interval
             let start = config.start();
             let end = config.end();
 
-            // transform the error if any and return it
+            // threshold noise
+            let rng = Arc::clone(&rng);
+            let normal = Arc::clone(&normal);
+
             neuron
                 .extend_firing_times(config.neuron_control(neuron.id()))
                 .map_err(|_| SimulationError::InvalidControl)?;
@@ -199,10 +219,18 @@ impl Network {
             println!("Neuron {} has been set up", neuron.id());
             let handle = task::spawn(async move {
                 let mut t = start;
-                let mut last_check = start;
+                let mut last_recv = start;
+                let mut last_sync = start;
 
                 while t < end {
-                    if t - last_check > 1.0 {
+                    // Synchronize neurons every min_delay
+                    if t - last_sync > min_delay {
+                        barrier.wait().await;
+                        last_sync = t;
+                    }
+
+                    // Receive messages from the last REFRACTORY_PERIOD
+                    if t - last_recv > REFRACTORY_PERIOD {
                         loop {
                             match rx.try_recv() {
                                 Ok((source_id, firing_time)) => {
@@ -221,16 +249,24 @@ impl Network {
                                 }
                             };
                         }
-                        last_check = t;
+                        last_recv = t;
                     }
-                    println!("Neuron {} is doing computation", neuron.id());
+
+                    // Compute neuron activity between t and t + TIME_STEP
+                    // println!("Neuron {} is doing computation", neuron.id());
                     if let Some(firing_time) = neuron.step(t, TIME_STEP) {
                         neuron.add_firing_time(firing_time).unwrap();
                         tx.send((neuron.id(), firing_time)).unwrap();
+                        let mut rng = rng.lock().unwrap();
+                        neuron.set_threshold(normal.sample(&mut *rng) + FIRING_THRESHOLD);
+                        println!(
+                            "Neuron {} sent new message: {}",
+                            neuron.id(),
+                            firing_time
+                        );
                     }
 
                     t += TIME_STEP;
-                    barrier.wait().await;
                 }
                 neuron
             });

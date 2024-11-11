@@ -159,6 +159,11 @@ impl Neuron {
     pub fn threshold(&self) -> f64 {
         self.threshold
     }
+    
+    /// Set the threshold of the neuron.
+    pub fn set_threshold(&mut self, threshold: f64) {
+        self.threshold = threshold;
+    }
 
     /// Returns the number of inputs of the neuron.
     pub fn num_inputs(&self) -> usize {
