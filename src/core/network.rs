@@ -1,19 +1,20 @@
 //! Module implementing the spiking neural networks.
 
 use itertools::Itertools;
+
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
-use std::marker::Send;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::task;
 
-use rand::Rng;
+use rand::SeedableRng;
 use rand_distr::{Distribution, Normal};
+use rand_chacha::ChaChaRng;
 // use rand_core::RngCore;
 
 use super::connection::{self, Connection, ConnectionError};
@@ -165,19 +166,23 @@ impl Network {
     }
 
     /// Run the network with the provided simulation details.
-    #[tokio::main]
-    pub async fn run<R: Rng + Clone + Send + 'static>(
+    pub async fn run(
         &mut self,
-        program: SimulationProgram,
-        rng: &mut R,
+        program: &SimulationProgram,
+        seed: u64,
     ) -> Result<(), SimulationError> {
         let num_neurons = self.num_neurons();
+        
+        if num_neurons == 0 {
+            return Ok(());
+        }
+
         let min_delay = self
             .connections
             .iter()
             .map(|c| c.delay())
-            .min_by(|a, b| a.partial_cmp(&b).unwrap())
-            .unwrap();
+            .min_by(|a, b| a.partial_cmp(&b).unwrap_or_else(|| panic!("Comparison failed: NaN values should")))
+            .unwrap_or_default();
 
         // Take ownership of neurons
         let neurons = std::mem::take(&mut self.neurons);
@@ -187,10 +192,10 @@ impl Network {
 
         let mut handles = vec![];
 
-        // threshold noise
-        let rng = Arc::new(Mutex::new(rng.clone()));
-        let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
-        let normal = Arc::new(normal);
+        // // threshold noise
+        // let rng = Arc::new(Mutex::new(rng.clone()));
+        // let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
+        // let normal = Arc::new(normal);
 
         for mut neuron in neurons.into_iter() {
             println!("Setting up neuron {}", neuron.id());
@@ -207,23 +212,31 @@ impl Network {
             let end = program.end();
 
             // threshold noise
-            let rng = Arc::clone(&rng);
-            let normal = Arc::clone(&normal);
+            let mut rng = ChaChaRng::seed_from_u64(seed + neuron.id() as u64);
+            let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
 
-            
+            // neuron control
             if let Some(firing_times) = program.neuron_control(neuron.id()) {
                 if let Err(e) = neuron.extend_firing_times(firing_times) {
-                    eprintln!("Failed to extend firing times of neuron {} with {:#?}: {}", neuron.id(), firing_times, e);
-                    return Err(SimulationError::InvalidControl)
+                    eprintln!(
+                        "Failed to extend firing times of neuron {} with {:#?}: {}",
+                        neuron.id(),
+                        firing_times,
+                        e
+                    );
+                    return Err(SimulationError::InvalidControl);
                 }
             }
-            
+
+            // neuron inputs
             for id in 0..num_neurons {
                 if let Some(firing_times) = program.neuron_control(id) {
                     neuron.extend_inputs_firing_times(id, firing_times);
                 }
             }
+
             println!("Neuron {} has been set up", neuron.id());
+
             let handle = task::spawn(async move {
                 let mut t = start;
                 let mut last_recv = start;
@@ -270,19 +283,9 @@ impl Network {
                             eprintln!("Failed to send message from neuron {}: {}", neuron.id(), e);
                             return neuron;
                         }
-                        let mut rng = match rng.lock() {
-                            Ok(rng) => rng,
-                            Err(e) => {
-                                eprintln!("Failed to lock RNG for neuron {}: {}", neuron.id(), e);
-                                return neuron;
-                            }
-                        };
-                        neuron.set_threshold(normal.sample(&mut *rng) + FIRING_THRESHOLD);
-                        println!(
-                            "Neuron {} sent new message: {}",
-                            neuron.id(),
-                            firing_time
-                        );
+
+                        neuron.set_threshold(normal.sample(&mut rng) + FIRING_THRESHOLD);
+                        println!("Neuron {} sent new message: {}", neuron.id(), firing_time);
                     }
 
                     t += TIME_STEP;
@@ -294,42 +297,27 @@ impl Network {
         }
 
         for handle in handles {
-            let neuron = handle.await.unwrap();
-            self.neurons.push(neuron);
+            match handle.await {
+                Ok(neuron) => self.neurons.push(neuron),
+                Err(e) => {
+                    eprintln!("Neuron task failed: {}", e);
+                    // Handle the error appropriately
+                    return Err(SimulationError::NeuronTaskFailed);
+                }
+            }
+            // let neuron = handle.await.unwrap();
+            // self.neurons.push(neuron);
         }
 
         Ok(())
     }
 }
 
-// /// Error type related to network operations.
-// #[derive(Debug, PartialEq)]
-// pub enum NetworkError {
-//     /// Error for incompatibility between the topology and the number of connections and neurons.
-//     IncompatibleTopology,
-//     /// Error for invalid neuron id (deprecated?).
-//     InvalidNeuronId,
-//     /// Error for invalid source neuron id (deprecated?).
-//     InvalidSourceId,
-//     /// Error for invalid target neuron id (deprecated?).
-//     InvalidTargetId,
-// }
-
-// impl std::fmt::Display for NetworkError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-//         match self {
-//             NetworkError::IncompatibleTopology => write!(f, "The connectivity topology is not compatible with the number of connections and neurons"),
-//             NetworkError::InvalidNeuronId => write!(f, "Invalid neuron id: out of bounds"),
-//             NetworkError::InvalidSourceId => write!(f, "Invalid source neuron id: out of bounds"),
-//             NetworkError::InvalidTargetId => write!(f, "Invalid target neuron id: out of bounds"),
-//         }
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     #[test]
     fn test_num_neurons() {
@@ -458,5 +446,17 @@ mod tests {
         let loaded_network = Network::load_from(temp_file.path()).unwrap();
 
         assert_eq!(network, loaded_network);
+    }
+
+    #[tokio::test]
+    async fn test_run_with_empty_network() {
+        let mut network = Network::new(vec![]);
+
+        let program = SimulationProgram::build(0.0, 1.0, 0.0, vec![]).unwrap();
+        let seed = 42;
+
+        let result = network.run(&program, seed).await;
+        println!("{:?}", result);
+        assert!(result.is_ok());
     }
 }

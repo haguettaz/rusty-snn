@@ -100,26 +100,30 @@ impl Neuron {
     /// If necessary, the provided firing times are sorted before being added.
     /// The function returns an error if the refractory period is violated.
     pub fn extend_firing_times(&mut self, firing_times: &[f64]) -> Result<(), SpikeTrainError> {
-        let mut firing_times = firing_times.to_vec();
-        firing_times.sort_by(|a, b| {
-            a.partial_cmp(b)
-                .expect("A problem occured while sorting the provided firing times.")
-        });
-        if firing_times
-            .windows(2)
-            .map(|w| (w[1] - w[0]))
-            .any(|dt| dt <= REFRACTORY_PERIOD)
-        {
-            return Err(SpikeTrainError::RefractoryPeriodViolation);
-        }
-        match (firing_times.first(), self.firing_times.last()) {
-            (Some(&first), Some(&last)) => {
-                if first <= last + REFRACTORY_PERIOD {
-                    return Err(SpikeTrainError::RefractoryPeriodViolation);
-                }
+
+        for t in firing_times {
+            if !t.is_finite() {
+                return Err(SpikeTrainError::InvalidTimes);
             }
-            _ => {}
         }
+
+        let mut firing_times = firing_times.to_vec();
+        firing_times.sort_by(|t1, t2| {
+            t1.partial_cmp(t2).unwrap_or_else(|| panic!("Comparison failed: NaN values should have been caught earlier"))
+        });
+
+        for ts in firing_times.windows(2) {
+            if ts[1] - ts[0] < REFRACTORY_PERIOD {
+                return Err(SpikeTrainError::RefractoryPeriodViolation {t1: ts[0], t2: ts[1]});
+            }
+        }  
+
+        if let (Some(&first), Some(&last)) = (firing_times.first(), self.firing_times.last()) {
+            if first <= last + REFRACTORY_PERIOD {
+                return Err(SpikeTrainError::RefractoryPeriodViolation {t1: last, t2: first});
+            }
+        }
+
         self.firing_times.extend(firing_times);
         Ok(())
     }
@@ -127,13 +131,14 @@ impl Neuron {
     /// Add a firing time to the neuron's firing times.
     /// The function returns an error if the refractory period is violated.
     pub fn add_firing_time(&mut self, t: f64) -> Result<(), SpikeTrainError> {
-        match self.firing_times.last() {
-            Some(&last) if t <= last + REFRACTORY_PERIOD => Err(SpikeTrainError::RefractoryPeriodViolation),
-            _ => {
-                self.firing_times.push(t);
-                Ok(())
+        if let Some(&last) = self.firing_times.last() {
+            if t <= last + REFRACTORY_PERIOD {
+                return Err(SpikeTrainError::RefractoryPeriodViolation {t1: last, t2: t});
             }
         }
+
+        self.firing_times.push(t);
+        Ok(())
     }
 
     /// Add firing time to the neuron's inputs whose source id matches the provided one.
@@ -291,7 +296,7 @@ mod tests {
         assert_eq!(neuron.firing_times, [0.0, 3.0, 7.0]);
         assert_eq!(
             neuron.extend_firing_times(&[6.0]),
-            Err(SpikeTrainError::RefractoryPeriodViolation)
+            Err(SpikeTrainError::RefractoryPeriodViolation {t1: 7.0, t2: 6.0})
         );
         assert_eq!(neuron.firing_times, [0.0, 3.0, 7.0]);
         assert_eq!(neuron.extend_firing_times(&[10.0, 12.0]), Ok(()));
@@ -307,7 +312,7 @@ mod tests {
         assert_eq!(neuron.firing_times, [0.0, 7.0]);
         assert_eq!(
             neuron.add_firing_time(5.0),
-            Err(SpikeTrainError::RefractoryPeriodViolation)
+            Err(SpikeTrainError::RefractoryPeriodViolation {t1: 7.0, t2: 5.0})
         );
         assert_eq!(neuron.firing_times, [0.0, 7.0]);
     }

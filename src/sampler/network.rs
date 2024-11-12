@@ -100,10 +100,6 @@ impl NetworkSampler {
     /// let network = sampler.sample(&mut rng);
     /// ```
     pub fn sample<R: Rng>(&self, rng: &mut R) -> Network {
-        // let neurons = (0..self.num_neurons)
-        //     .map(|id| Neuron::new(id, 1.0))
-        //     .collect();
-
         let weight_dist = Uniform::new_inclusive(self.lim_weights.0, self.lim_weights.1);
         let delay_dist = Uniform::new_inclusive(self.lim_delays.0, self.lim_delays.1);
 

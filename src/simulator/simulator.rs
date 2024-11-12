@@ -3,16 +3,21 @@
 use crate::core::spike_train::SpikeTrain;
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
-/// Represents a time interval with a start and end time.
+/// Represents a half-open time interval [start, end).
 #[derive(Debug, PartialEq)]
 pub struct TimeInterval {
     start: f64,
     end: f64,
 }
 
+/// Implement the partial ordering for time intervals.
+/// The ordering is based on the start and end times of the intervals.
+/// A time interval is less than another if it ends before the other starts, and vice versa.
+/// Overlapping intervals are not ordered.
 impl PartialOrd for TimeInterval {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.end <= other.start {
@@ -28,13 +33,14 @@ impl PartialOrd for TimeInterval {
 impl TimeInterval {
     /// Create a time interval with the specified parameters.
     pub fn build(start: f64, end: f64) -> Result<Self, SimulationError> {
+        if !(start.is_finite() && end.is_finite()) {
+            return Err(SimulationError::HalfInfiniteTimeInterval);
+        }
+
         if start >= end {
             return Err(SimulationError::EmptyTimeInterval);
         }
 
-        if !(start.is_finite() && end.is_finite()) {
-            return Err(SimulationError::HalfInfiniteTimeInterval);
-        }
 
         Ok(TimeInterval { start, end })
     }
@@ -50,7 +56,7 @@ impl TimeInterval {
     }
 }
 
-/// Represents a simulation interval with neuron control and disturbance.
+/// Represents a simulation program with a time interval, neuron control, and threshold noise.
 #[derive(Debug, PartialEq)]
 pub struct SimulationProgram {
     interval: TimeInterval,
@@ -73,12 +79,11 @@ impl SimulationProgram {
             return Err(SimulationError::InvalidThresholdNoise);
         }
 
-        let mut ids = neuron_control
+        let ids: HashSet<_> = neuron_control
             .iter()
             .map(|spike_train| spike_train.id())
-            .collect::<Vec<_>>();
-        ids.sort();
-        if ids.windows(2).any(|w: &[usize]| w[0] == w[1]) {
+            .collect();
+        if ids.len() != neuron_control.len() {
             return Err(SimulationError::InvalidControl);
         }
 
@@ -135,6 +140,8 @@ pub enum SimulationError {
     InvalidControl,
     /// Error for failed simulation.
     SimulationFailed,
+    /// Error for neuron task failure.
+    NeuronTaskFailed,
 }
 
 impl fmt::Display for SimulationError {
@@ -150,6 +157,7 @@ impl fmt::Display for SimulationError {
             ),
             SimulationError::InvalidControl => write!(f, "Invalid control"),
             SimulationError::SimulationFailed => write!(f, "Simulation failed"),
+            SimulationError::NeuronTaskFailed => write!(f, "Neuron task failed"),
         }
     }
 }
@@ -174,17 +182,25 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_simulation_interval() {
+    fn test_time_interval_with_infinite_values() {
         assert_eq!(
-            SimulationProgram::build(1.0, 0.0, 0.0, vec![]),
-            Err(SimulationError::EmptyTimeInterval)
+            TimeInterval::build(f64::INFINITY, 1.0),
+            Err(SimulationError::HalfInfiniteTimeInterval)
         );
         assert_eq!(
-            SimulationProgram::build(0.0, 0.0, 0.0, vec![]),
-            Err(SimulationError::EmptyTimeInterval)
+            TimeInterval::build(0.0, f64::INFINITY),
+            Err(SimulationError::HalfInfiniteTimeInterval)
+        );
+    }
+
+    #[test]
+    fn test_time_interval_with_nan_values() {
+        assert_eq!(
+            TimeInterval::build(f64::NAN, 1.0),
+            Err(SimulationError::HalfInfiniteTimeInterval)
         );
         assert_eq!(
-            SimulationProgram::build(0.0, std::f64::INFINITY, 0.0, vec![]),
+            TimeInterval::build(0.0, f64::NAN),
             Err(SimulationError::HalfInfiniteTimeInterval)
         );
     }
