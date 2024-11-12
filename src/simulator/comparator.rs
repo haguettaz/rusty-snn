@@ -27,7 +27,11 @@
 
 
 use crate::core::REFRACTORY_PERIOD;
+use crate::simulator::SHIFT_FACTOR;
+
 use itertools::Itertools;
+use std::error::Error;
+use std::fmt;
 
 /// Represents a comparator for spike trains.
 #[derive(Debug, PartialEq)]
@@ -41,9 +45,6 @@ pub struct Comparator<'a> {
 }
 
 impl<'a> Comparator<'a> {
-    /// The factor used to compute the optimal shift for precision and recall.
-    const SHIFT_FACTOR: f64 = 1_000_000.0;
-
     /// Create a new `Comparator` instance with the given reference spike train and period.
     pub fn new(ref_trains: &'a Vec<Vec<f64>>, period: f64) -> Comparator<'a> {
         Comparator {
@@ -77,10 +78,10 @@ impl<'a> Comparator<'a> {
                     .cartesian_product(train.iter())
                     .map(|(ref_t, t)| t - ref_t)
             })
-            .unique_by(|&x| (x.rem_euclid(self.period) * Self::SHIFT_FACTOR) as i32);
+            .unique_by(|&x| (x.rem_euclid(self.period) * SHIFT_FACTOR) as i32);
 
         let best_shift = shifts.max_by_key(|shift| {
-            (self.precision_objective(trains, *shift) * Self::SHIFT_FACTOR) as i32
+            (self.precision_objective(trains, *shift) * SHIFT_FACTOR) as i32
         });
 
         match best_shift {
@@ -117,10 +118,10 @@ impl<'a> Comparator<'a> {
                     .map(|(ref_t, t)| t - ref_t)
             })
             // Reduce the shift precision before dropping the duplicated shift to improve performance
-            .unique_by(|&x| (x.rem_euclid(self.period) * Self::SHIFT_FACTOR) as i32);
+            .unique_by(|&x| (x.rem_euclid(self.period) * SHIFT_FACTOR) as i32);
 
         let best_shift = shifts.max_by_key(|shift| {
-            (self.recall_objective(trains, *shift) * Self::SHIFT_FACTOR) as i32
+            (self.recall_objective(trains, *shift) * SHIFT_FACTOR) as i32
         });
 
         match best_shift {
@@ -200,14 +201,16 @@ pub enum ComparatorError {
     IncompatibleSpikeTrains,
 }
 
-impl std::fmt::Display for ComparatorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for ComparatorError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ComparatorError::RefractoryPeriodViolation => write!(f, "Violation of the refractory period"),
             ComparatorError::IncompatibleSpikeTrains => write!(f, "Incompatible spike trains"),
         }
     }
 }
+
+impl Error for ComparatorError {}
 
 #[cfg(test)]
 mod tests {

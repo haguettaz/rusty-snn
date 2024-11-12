@@ -19,7 +19,7 @@ use rand_distr::{Distribution, Normal};
 use super::connection::{self, Connection, ConnectionError};
 use super::neuron::Neuron;
 use crate::core::{FIRING_THRESHOLD, REFRACTORY_PERIOD};
-use crate::simulator::simulator::{SimulationError, SimulationInterval};
+use crate::simulator::simulator::{SimulationError, SimulationProgram};
 use crate::simulator::TIME_STEP;
 
 /// Represents a spiking neural network.
@@ -168,7 +168,7 @@ impl Network {
     #[tokio::main]
     pub async fn run<R: Rng + Clone + Send + 'static>(
         &mut self,
-        config: SimulationInterval,
+        program: SimulationProgram,
         rng: &mut R,
     ) -> Result<(), SimulationError> {
         let num_neurons = self.num_neurons();
@@ -189,7 +189,7 @@ impl Network {
 
         // threshold noise
         let rng = Arc::new(Mutex::new(rng.clone()));
-        let normal = Normal::new(0.0, config.threshold_noise()).unwrap();
+        let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
         let normal = Arc::new(normal);
 
         for mut neuron in neurons.into_iter() {
@@ -203,18 +203,25 @@ impl Network {
             let barrier = barrier.clone();
 
             // simulation interval
-            let start = config.start();
-            let end = config.end();
+            let start = program.start();
+            let end = program.end();
 
             // threshold noise
             let rng = Arc::clone(&rng);
             let normal = Arc::clone(&normal);
 
-            neuron
-                .extend_firing_times(config.neuron_control(neuron.id()))
-                .map_err(|_| SimulationError::InvalidControl)?;
+            
+            if let Some(firing_times) = program.neuron_control(neuron.id()) {
+                if let Err(e) = neuron.extend_firing_times(firing_times) {
+                    eprintln!("Failed to extend firing times of neuron {} with {:#?}: {}", neuron.id(), firing_times, e);
+                    return Err(SimulationError::InvalidControl)
+                }
+            }
+            
             for id in 0..num_neurons {
-                neuron.extend_inputs_firing_times(id, config.neuron_control(id));
+                if let Some(firing_times) = program.neuron_control(id) {
+                    neuron.extend_inputs_firing_times(id, firing_times);
+                }
             }
             println!("Neuron {} has been set up", neuron.id());
             let handle = task::spawn(async move {
@@ -255,9 +262,21 @@ impl Network {
                     // Compute neuron activity between t and t + TIME_STEP
                     // println!("Neuron {} is doing computation", neuron.id());
                     if let Some(firing_time) = neuron.step(t, TIME_STEP) {
-                        neuron.add_firing_time(firing_time).unwrap();
-                        tx.send((neuron.id(), firing_time)).unwrap();
-                        let mut rng = rng.lock().unwrap();
+                        if let Err(e) = neuron.add_firing_time(firing_time) {
+                            eprintln!("Failed to add firing time to neuron {}: {}", neuron.id(), e);
+                            return neuron;
+                        }
+                        if let Err(e) = tx.send((neuron.id(), firing_time)) {
+                            eprintln!("Failed to send message from neuron {}: {}", neuron.id(), e);
+                            return neuron;
+                        }
+                        let mut rng = match rng.lock() {
+                            Ok(rng) => rng,
+                            Err(e) => {
+                                eprintln!("Failed to lock RNG for neuron {}: {}", neuron.id(), e);
+                                return neuron;
+                            }
+                        };
                         neuron.set_threshold(normal.sample(&mut *rng) + FIRING_THRESHOLD);
                         println!(
                             "Neuron {} sent new message: {}",

@@ -21,11 +21,14 @@
 //! assert_eq!(network.num_inputs(0), 10);
 //! ```
 
-use crate::core::network::Network;
 use crate::core::connection::Connection;
+use crate::core::network::Network;
+
 use rand::distributions::{Distribution, Uniform};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::error::Error;
+use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub enum Topology {
@@ -180,7 +183,6 @@ impl NetworkSampler {
     }
 }
 
-
 #[derive(Debug, PartialEq)]
 pub enum NetworkSamplerError {
     /// Error for invalid delay value.
@@ -189,14 +191,16 @@ pub enum NetworkSamplerError {
     IncompatibleTopology,
 }
 
-impl std::fmt::Display for NetworkSamplerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for NetworkSamplerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             NetworkSamplerError::InvalidDelay => write!(f, "Invalid delay value: must be non-negative"),
             NetworkSamplerError::IncompatibleTopology => write!(f, "The connectivity topology is not compatible with the number of connections and neurons"),
         }
     }
 }
+
+impl Error for NetworkSamplerError {}
 
 #[cfg(test)]
 mod tests {

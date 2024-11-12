@@ -1,13 +1,32 @@
 //! Module implementing the concept of connections in a network.
+//!
+//! A connection represents a synaptic link between two neurons, characterized by:
+//! - source_id: The ID of the presynaptic neuron
+//! - target_id: The ID of the postsynaptic neuron
+//! - weight: The connection strength
+//! - delay: The connection delay (must be non-negative)
+//!
+//! # Example
+//! ```
+//! use rusty_snn::core::connection::Connection;
+//! 
+//! let connection = Connection::build(0, 1, 0.5, 1.0).unwrap();
+//! ```
 
+use std::fmt;
+use std::error::Error;
 use serde::{Deserialize, Serialize};
 
 /// Represents a connection between two neurons in a network.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Connection {
+    /// ID of the source (presynaptic) neuron
     source_id: usize,
+    /// ID of the target (postsynaptic) neuron
     target_id: usize,
+    /// Connection weight
     weight: f64,
+    /// Connection delay (must be non-negative)
     delay: f64,
 }
 
@@ -59,8 +78,8 @@ pub enum ConnectionError {
     InvalidSourceID,
 }
 
-impl std::fmt::Display for ConnectionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for ConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ConnectionError::InvalidDelay => write!(f, "Invalid delay value: must be non-negative"),
             ConnectionError::InvalidTargetID => write!(f, "Invalid target ID"),
@@ -68,3 +87,5 @@ impl std::fmt::Display for ConnectionError {
         }
     }
 }
+
+impl Error for ConnectionError {}
