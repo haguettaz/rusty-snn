@@ -5,7 +5,7 @@
 //! ```rust
 //! use rand::rngs::StdRng;
 //! use rand::SeedableRng;
-//! use rusty_snn::spike_train::sampler::PeriodicSpikeTrainSampler;
+//! use rusty_snn::sampler::spike_train::PeriodicSpikeTrainSampler;
 //!
 //! let mut rng = StdRng::seed_from_u64(42);
 //!
@@ -23,6 +23,8 @@
 
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand::Rng;
+use std::error::Error;
+use std::fmt;
 
 /// Error type for the `PeriodicSpikeTrainSampler` struct.
 #[derive(Debug, PartialEq)]
@@ -35,8 +37,8 @@ pub enum PeriodicSpikeTrainSamplerError {
     InvalidNumSpikeWeights(String),
 }
 
-impl std::fmt::Display for PeriodicSpikeTrainSamplerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for PeriodicSpikeTrainSamplerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PeriodicSpikeTrainSamplerError::InvalidPeriod => {
                 write!(f, "The spike train period must be positive.")
@@ -50,6 +52,8 @@ impl std::fmt::Display for PeriodicSpikeTrainSamplerError {
         }
     }
 }
+
+impl Error for PeriodicSpikeTrainSamplerError {}
 
 /// Represents a sampler for generating periodic spike trains.
 #[derive(Debug, PartialEq)]

@@ -3,17 +3,34 @@
     {
       "id": 0,
       "threshold": 1.0,
-      "firing_times": []
+      "firing_times": [],
+      "inputs": []
     },
     {
       "id": 1,
       "threshold": 1.0,
-      "firing_times": []
+      "firing_times": [],
+      "inputs": [
+        {
+          "source_id": 0,
+          "weight": 1.0,
+          "delay": 1.0,
+          "firing_times": []
+        }
+      ]
     },
     {
       "id": 2,
       "threshold": 1.0,
-      "firing_times": []
+      "firing_times": [],
+      "inputs": [
+        {
+          "source_id": 1,
+          "weight": -1.0,
+          "delay": 2.0,
+          "firing_times": []
+        }
+      ]
     }
   ],
   "connections": [
@@ -21,22 +38,13 @@
       "source_id": 0,
       "target_id": 1,
       "weight": 1.0,
-      "delay": 1.0,
-      "firing_times": []
+      "delay": 1.0
     },
     {
       "source_id": 1,
       "target_id": 2,
       "weight": -1.0,
-      "delay": 2.0,
-      "firing_times": []
-    },
-    {
-      "source_id": 2,
-      "target_id": 2,
-      "weight": 0.25,
-      "delay": 0.5,
-      "firing_times": []
+      "delay": 2.0
     }
   ]
 }
