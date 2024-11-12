@@ -3,7 +3,6 @@
 //! This module provides two main components:
 //! - `simulator`: Provides utilities for simulation programs.
 //! - `comparator`: Provides utilities for assessing simulations.
-//! ```
 
 pub mod simulator;
 pub mod comparator;
