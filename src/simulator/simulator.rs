@@ -41,7 +41,6 @@ impl TimeInterval {
             return Err(SimulationError::EmptyTimeInterval);
         }
 
-
         Ok(TimeInterval { start, end })
     }
 
@@ -116,14 +115,10 @@ impl SimulationProgram {
 
     /// Returns the control firing times for the specified neuron.
     pub fn neuron_control(&self, id: usize) -> Option<&[f64]> {
-        let spike_train = self
-            .neuron_control
+        self.neuron_control
             .iter()
-            .find(|spike_train| spike_train.id() == id);
-        match spike_train {
-            Some(spike_train) => Some(spike_train.firing_times()),
-            None => None,
-        }
+            .find(|spike_train| spike_train.id() == id)
+            .map(|spike_train| spike_train.firing_times())
     }
 }
 
@@ -221,5 +216,26 @@ mod tests {
             SimulationProgram::build(0.0, 1.0, -1.0, vec![]),
             Err(SimulationError::InvalidThresholdNoise)
         );
+    }
+
+    #[test]
+    fn test_get_neuron_control() {
+        let firing_times_0= [0.0, 1.5];
+        let firing_times_1 = [];
+
+        let spike_train_0 = SpikeTrain::build(0, &firing_times_0).unwrap();
+        let spike_train_1 = SpikeTrain::build(1, &firing_times_1).unwrap();
+
+        let program = SimulationProgram::build(0.0, 3.0, 0.0, vec![spike_train_0, spike_train_1]).unwrap();
+        
+        match program.neuron_control(0) {
+            Some(firing_times) => assert_eq!(firing_times, &firing_times_0),
+            None => panic!("Expected firing times for neuron 0"),
+        }
+        match program.neuron_control(1) {
+            Some(firing_times) => assert_eq!(firing_times, &firing_times_1),
+            None => panic!("Expected firing times for neuron 0"),
+        }
+        assert_eq!(program.neuron_control(2), None);        
     }
 }
