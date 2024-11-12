@@ -34,8 +34,8 @@ impl Network {
     ///
     /// # Example
     /// ```rust
-    /// use rusty_snn::snn::network::Network;
-    /// use rusty_snn::snn::connection::Connection;
+    /// use rusty_snn::core::network::Network;
+    /// use rusty_snn::core::connection::Connection;
     ///
     /// let connections = vec![Connection::build(0, 1, 1.0, 1.0).unwrap(), Connection::build(1, 2, -1.0, 2.0).unwrap()];
     /// let network = Network::new(connections);
@@ -70,8 +70,8 @@ impl Network {
     ///
     /// # Example
     /// ```rust
-    /// use rusty_snn::snn::network::Network;
-    /// use rusty_snn::snn::connection::Connection;
+    /// use rusty_snn::core::network::Network;
+    /// use rusty_snn::core::connection::Connection;
     /// use std::path::Path;
     ///
     /// let connections = vec![Connection::build(0, 1, 1.0, 1.0).unwrap(), Connection::build(1, 2, -1.0, 2.0).unwrap()];
@@ -92,7 +92,7 @@ impl Network {
     ///
     /// # Example
     /// ```rust
-    /// use rusty_snn::snn::network::Network;
+    /// use rusty_snn::core::network::Network;
     ///
     /// // Load the network from a file
     /// let network = Network::load_from("network.json").unwrap();
