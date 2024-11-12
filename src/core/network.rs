@@ -172,7 +172,7 @@ impl Network {
         seed: u64,
     ) -> Result<(), SimulationError> {
         let num_neurons = self.num_neurons();
-        
+
         if num_neurons == 0 {
             return Ok(());
         }
@@ -181,7 +181,7 @@ impl Network {
             .connections
             .iter()
             .map(|c| c.delay())
-            .min_by(|a, b| a.partial_cmp(&b).unwrap_or_else(|| panic!("Comparison failed: NaN values should")))
+            .min_by(|a, b| a.partial_cmp(&b).unwrap_or_else(|| panic!("Comparison failed: NaN values should have been caught earlier")))
             .unwrap_or_default();
 
         // Take ownership of neurons
