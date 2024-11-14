@@ -165,7 +165,17 @@ impl Network {
             .count()
     }
 
-    /// Run the network with the provided simulation details.
+    /// Run the network asynchronously with the provided simulation details.
+    /// 
+    /// Neurons communicate using a broadcast channel (see [`tokio::sync::broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/index.html)).
+    /// When a neuron spikes, it sends a message containing its firing time and id through the broadcast channel.
+    /// Messages are received every `REFRACTORY_PERIOD`, and neurons update their inputs accordingly.
+    /// 
+    /// Neurons are simulated in parallel and synchronized every `min_delay` using a barrier (see [`tokio::sync::Barrier`](https://docs.rs/tokio/latest/tokio/sync/struct.Barrier.html)).
+    /// 
+    /// For reproducibility, the simulation uses a different random number generator for each neuron, seeded with the provided seed and the neuron id.
+    /// 
+    /// Returns an error if the simulation fails.
     pub async fn run(
         &mut self,
         program: &SimulationProgram,
@@ -177,13 +187,34 @@ impl Network {
             return Ok(());
         }
 
-        let min_delay = self
+        // Set up neuron control
+        for neuron in self.neurons.iter_mut() {
+            if let Some(firing_times) = program.neuron_control(neuron.id()) {
+                if let Err(e) = neuron.extend_firing_times(firing_times) {
+                    eprintln!(
+                        "Failed to extend firing times of neuron {} with {:#?}: {}",
+                        neuron.id(),
+                        firing_times,
+                        e
+                    );
+                    return Err(SimulationError::InvalidControl);
+                }
+            }
+        }
+
+        let min_delay = match self
             .connections
             .iter()
             .map(|c| c.delay())
             .min_by(|a, b| a.partial_cmp(&b).unwrap_or_else(|| panic!("Comparison failed: NaN values should have been caught earlier")))
-            .unwrap_or_default();
-
+        {
+            Some(delay) => delay,
+            None => {
+                println!("Discrete network: neurons cannot communicate with each other");
+                return Ok(())
+            },
+        };
+        
         // Take ownership of neurons
         let neurons = std::mem::take(&mut self.neurons);
 
@@ -214,19 +245,6 @@ impl Network {
             // threshold noise
             let mut rng = ChaChaRng::seed_from_u64(seed + neuron.id() as u64);
             let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
-
-            // neuron control
-            if let Some(firing_times) = program.neuron_control(neuron.id()) {
-                if let Err(e) = neuron.extend_firing_times(firing_times) {
-                    eprintln!(
-                        "Failed to extend firing times of neuron {} with {:#?}: {}",
-                        neuron.id(),
-                        firing_times,
-                        e
-                    );
-                    return Err(SimulationError::InvalidControl);
-                }
-            }
 
             // neuron inputs
             for id in 0..num_neurons {
@@ -451,6 +469,21 @@ mod tests {
     #[tokio::test]
     async fn test_run_with_empty_network() {
         let mut network = Network::new(vec![]);
+
+        let program = SimulationProgram::build(0.0, 1.0, 0.0, vec![]).unwrap();
+        let seed = 42;
+
+        let result = network.run(&program, seed).await;
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_run_with_disconnected_network() {
+        let mut network = Network::new(vec![]);
+        for i in 0..10 {
+            network.add_neuron(i);
+        }
 
         let program = SimulationProgram::build(0.0, 1.0, 0.0, vec![]).unwrap();
         let seed = 42;
