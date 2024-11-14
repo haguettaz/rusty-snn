@@ -218,31 +218,27 @@ impl Network {
         // Take ownership of neurons
         let neurons = std::mem::take(&mut self.neurons);
 
+        // set up broadcast channel for communication and barrier for synchronization
         let (tx, _) = broadcast::channel::<(usize, f64)>(num_neurons);
         let barrier = Arc::new(tokio::sync::Barrier::new(num_neurons));
 
         let mut handles = vec![];
 
-        // // threshold noise
-        // let rng = Arc::new(Mutex::new(rng.clone()));
-        // let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
-        // let normal = Arc::new(normal);
-
         for mut neuron in neurons.into_iter() {
             println!("Setting up neuron {}", neuron.id());
 
-            // transmitter and receiver for neuron communication
+            // setup transmitter and receiver for communication
             let tx = tx.clone();
             let mut rx = tx.subscribe();
 
-            // barrier for synchronization
+            // setup barrier for synchronization
             let barrier = barrier.clone();
 
             // simulation interval
             let start = program.start();
             let end = program.end();
 
-            // threshold noise
+            // setup rng for threshold noise
             let mut rng = ChaChaRng::seed_from_u64(seed + neuron.id() as u64);
             let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
 
@@ -291,7 +287,6 @@ impl Network {
                     }
 
                     // Compute neuron activity between t and t + TIME_STEP
-                    // println!("Neuron {} is doing computation", neuron.id());
                     if let Some(firing_time) = neuron.step(t, TIME_STEP) {
                         if let Err(e) = neuron.add_firing_time(firing_time) {
                             eprintln!("Failed to add firing time to neuron {}: {}", neuron.id(), e);
@@ -323,8 +318,6 @@ impl Network {
                     return Err(SimulationError::NeuronTaskFailed);
                 }
             }
-            // let neuron = handle.await.unwrap();
-            // self.neurons.push(neuron);
         }
 
         Ok(())
