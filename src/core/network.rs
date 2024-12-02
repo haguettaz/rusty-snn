@@ -215,7 +215,7 @@ impl Network {
             },
         };
         
-        // Take ownership of neurons
+        // take ownership of neurons
         let neurons = std::mem::take(&mut self.neurons);
 
         // set up broadcast channel for communication and barrier for synchronization
