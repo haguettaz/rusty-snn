@@ -3,7 +3,6 @@
 use crate::core::spike_train::SpikeTrain;
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
@@ -59,7 +58,7 @@ impl TimeInterval {
 #[derive(Debug, PartialEq)]
 pub struct SimulationProgram {
     interval: TimeInterval,
-    neuron_control: Vec<SpikeTrain>,
+    spike_trains: Vec<SpikeTrain>,
     threshold_noise: f64,
 }
 
@@ -70,7 +69,7 @@ impl SimulationProgram {
         start: f64,
         end: f64,
         threshold_noise: f64,
-        neuron_control: Vec<SpikeTrain>,
+        spike_trains: Vec<SpikeTrain>,
     ) -> Result<Self, SimulationError> {
         let interval = TimeInterval::build(start, end)?;
 
@@ -78,17 +77,17 @@ impl SimulationProgram {
             return Err(SimulationError::InvalidThresholdNoise);
         }
 
-        let ids: HashSet<_> = neuron_control
-            .iter()
-            .map(|spike_train| spike_train.id())
-            .collect();
-        if ids.len() != neuron_control.len() {
-            return Err(SimulationError::InvalidControl);
-        }
+        // let ids: HashSet<_> = neuron_control
+        //     .iter()
+        //     .map(|spike_train| spike_train.id())
+        //     .collect();
+        // if ids.len() != neuron_control.len() {
+        //     return Err(SimulationError::InvalidControl);
+        // }
 
         Ok(SimulationProgram {
             interval,
-            neuron_control,
+            spike_trains,
             threshold_noise,
         })
     }
@@ -113,13 +112,18 @@ impl SimulationProgram {
         self.threshold_noise
     }
 
-    /// Returns the control firing times for the specified neuron.
-    pub fn neuron_control(&self, id: usize) -> Option<&[f64]> {
-        self.neuron_control
-            .iter()
-            .find(|spike_train| spike_train.id() == id)
-            .map(|spike_train| spike_train.firing_times())
+    /// Returns a slice of the inputs for the simulation program.
+    pub fn spike_trains(&self) -> &[SpikeTrain] {
+        &self.spike_trains
     }
+
+    // /// Returns the control firing times for the specified neuron.
+    // pub fn neuron_control(&self, id: usize) -> Option<&[f64]> {
+    //     self.neuron_control
+    //         .iter()
+    //         .find(|spike_train| spike_train.id() == id)
+    //         .map(|spike_train| spike_train.firing_times())
+    // }
 }
 
 /// Error types for the simulation program.
@@ -200,15 +204,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_invalid_control() {
-        let spike_train = SpikeTrain::build(1, &[0.0, 1.5]).unwrap();
-        let spike_train_duplicate = SpikeTrain::build(1, &[0.1, 1.3]).unwrap();
-        assert_eq!(
-            SimulationProgram::build(0.0, 3.0, 0.0, vec![spike_train, spike_train_duplicate]),
-            Err(SimulationError::InvalidControl)
-        );
-    }
+    // #[test]
+    // fn test_invalid_control() {
+    //     let spike_train = SpikeTrain::build(1, &[0.0, 1.5]).unwrap();
+    //     let spike_train_duplicate = SpikeTrain::build(1, &[0.1, 1.3]).unwrap();
+    //     assert_eq!(
+    //         SimulationProgram::build(0.0, 3.0, 0.0, vec![spike_train, spike_train_duplicate]),
+    //         Err(SimulationError::InvalidControl)
+    //     );
+    // }
 
     #[test]
     fn test_invalid_noise() {
@@ -218,24 +222,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_neuron_control() {
-        let firing_times_0= [0.0, 1.5];
-        let firing_times_1 = [];
+    // #[test]
+    // fn test_get_neuron_control() {
+    //     let firing_times_0= [0.0, 1.5];
+    //     let firing_times_1 = [];
 
-        let spike_train_0 = SpikeTrain::build(0, &firing_times_0).unwrap();
-        let spike_train_1 = SpikeTrain::build(1, &firing_times_1).unwrap();
+    //     let spike_train_0 = SpikeTrain::build(0, &firing_times_0).unwrap();
+    //     let spike_train_1 = SpikeTrain::build(1, &firing_times_1).unwrap();
 
-        let program = SimulationProgram::build(0.0, 3.0, 0.0, vec![spike_train_0, spike_train_1]).unwrap();
+    //     let program = SimulationProgram::build(0.0, 3.0, 0.0, vec![spike_train_0, spike_train_1]).unwrap();
         
-        match program.neuron_control(0) {
-            Some(firing_times) => assert_eq!(firing_times, &firing_times_0),
-            None => panic!("Expected firing times for neuron 0"),
-        }
-        match program.neuron_control(1) {
-            Some(firing_times) => assert_eq!(firing_times, &firing_times_1),
-            None => panic!("Expected firing times for neuron 0"),
-        }
-        assert_eq!(program.neuron_control(2), None);        
-    }
+    //     match program.neuron_control(0) {
+    //         Some(firing_times) => assert_eq!(firing_times, &firing_times_0),
+    //         None => panic!("Expected firing times for neuron 0"),
+    //     }
+    //     match program.neuron_control(1) {
+    //         Some(firing_times) => assert_eq!(firing_times, &firing_times_1),
+    //         None => panic!("Expected firing times for neuron 0"),
+    //     }
+    //     assert_eq!(program.neuron_control(2), None);        
+    // }
 }

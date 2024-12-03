@@ -9,13 +9,98 @@
 //! # Example
 //! ```
 //! use rusty_snn::core::connection::Connection;
-//! 
+//!
 //! let connection = Connection::build(0, 1, 0.5, 1.0).unwrap();
 //! ```
 
-use std::fmt;
-use std::error::Error;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
+use std::fmt;
+
+/// Represents an input to a neuron.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct Input {
+    /// ID of the sending neuron
+    source_id: usize,
+    /// Weight of the input
+    weight: f64,
+    /// Times at which the sending neuron fired
+    firing_time: f64,
+}
+
+impl Input {
+    // /// Create a new input with the specified parameters.
+    // /// Note that the function cannot check if the source id is valid; this check must be done at the network level.
+    // pub fn from_connection(connection: &Connection) -> Self {
+    //     Input {
+    //         source_id: connection.source_id(),
+    //         weight: connection.weight(),
+    //         delay: connection.delay(),
+    //         firing_times: vec![],
+    //     }
+    // }
+
+    pub fn new(source_id: usize, weight: f64, firing_time: f64) -> Self {
+        Input {
+            source_id,
+            weight,
+            firing_time,
+        }
+    }
+
+    // /// Add a firing time to the input.
+    // /// The function does not check the refractory period: in principle, the input can fire without any restriction.
+    // pub fn add_firing_time(&mut self, t: f64) {
+    //     self.firing_times.push(t + self.delay);
+    // }
+
+    // /// Extend the firing times of the input.
+    // /// The function does not check the refractory period: in principle, the input can fire without any restriction.
+    // pub fn extend_firing_times(&mut self, firing_times: &[f64]) {
+    //     self.firing_times
+    //         .extend(firing_times.iter().map(|ft| ft + self.delay));
+    // }
+
+    // /// Evaluate the input signal at a given time.
+    // pub fn eval(&self, t: f64) -> f64 {
+    //     self.firing_times
+    //         .iter()
+    //         .map(|ft| t - ft)
+    //         .filter_map(|dt| {
+    //             if dt > 0. {
+    //                 Some(2_f64 * dt * (-dt).exp())
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .sum()
+    // }
+
+    /// Evaluate the input signal at a given time.
+    pub fn eval(&self, t: f64) -> f64 {
+        let dt = t - self.firing_time;
+        if dt > 0.0 {
+            return self.weight * dt * (-dt).exp();
+        } else {
+            return 0.0;
+        }
+    }
+
+    /// Returns the weight of the connection.
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    /// Returns the firing time of the input.
+    pub fn firing_time(&self) -> f64 {
+        self.firing_time
+    }
+
+    /// Returns the ID of the sending neuron.
+    pub fn source_id(&self) -> usize {
+        self.source_id
+    }
+}
 
 /// Represents a connection between two neurons in a network.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -33,7 +118,12 @@ pub struct Connection {
 impl Connection {
     /// Create a new connection with the specified parameters.
     /// Returns an error if the delay is negative.
-    pub fn build(source_id: usize, target_id: usize, weight: f64, delay: f64) -> Result<Self, ConnectionError> {
+    pub fn build(
+        source_id: usize,
+        target_id: usize,
+        weight: f64,
+        delay: f64,
+    ) -> Result<Self, ConnectionError> {
         if delay < 0.0 {
             return Err(ConnectionError::InvalidDelay);
         }
@@ -89,3 +179,33 @@ impl fmt::Display for ConnectionError {
 }
 
 impl Error for ConnectionError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::f64::consts::E;
+
+    #[test]
+    fn test_connection_build() {
+        let connection = Connection::build(0, 1, 0.5, 1.0).unwrap();
+        assert_eq!(connection.source_id(), 0);
+        assert_eq!(connection.target_id(), 1);
+        assert_eq!(connection.weight(), 0.5);
+        assert_eq!(connection.delay(), 1.0);
+    }
+
+    #[test]
+    fn test_connection_build_invalid_delay() {
+        let connection = Connection::build(0, 1, 0.5, -1.0);
+        assert_eq!(connection, Err(ConnectionError::InvalidDelay));
+    }
+
+    #[test]
+    fn test_input_eval() {
+        let input = Input::new(0, 1.0, 0.0);
+        assert_eq!(input.eval(-1.0), 0.0);
+        assert_eq!(input.eval(0.0), 0.0);
+        assert_eq!(input.eval(1.0), 1_f64/E);
+    }
+}

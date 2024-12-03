@@ -16,5 +16,6 @@ serde_json = "1.0"
 itertools = "0.13"
 tempfile = "3.14"
 embed-doc-image = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+# tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 nalgebra = "0.33"
+lambert_w = "1.0"
