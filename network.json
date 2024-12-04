@@ -1,24 +1,21 @@
 {
-  "neurons": [
-    {
-      "id": 0,
+  "neurons": {
+    "2": {
       "threshold": 1.0,
       "firing_times": [],
       "inputs": []
     },
-    {
-      "id": 1,
+    "1": {
       "threshold": 1.0,
       "firing_times": [],
       "inputs": []
     },
-    {
-      "id": 2,
+    "0": {
       "threshold": 1.0,
       "firing_times": [],
       "inputs": []
     }
-  ],
+  },
   "connections": [
     {
       "source_id": 0,

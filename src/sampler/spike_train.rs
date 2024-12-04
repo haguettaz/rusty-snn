@@ -26,7 +26,7 @@ use rand::Rng;
 use std::error::Error;
 use std::{fmt, vec};
 
-use crate::core::spike_train::{self, SpikeTrain};
+use crate::core::spike_train::SpikeTrain;
 
 /// Error type for the `PeriodicSpikeTrainSampler` struct.
 #[derive(Debug, PartialEq)]
@@ -89,9 +89,9 @@ impl PeriodicSpikeTrainSampler {
             return Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate);
         }
         let num_spikes_probs =
-            WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate)).map_err(|e| {
-                PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(e.to_string())
-            })?;
+            WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate)).map_err(
+                |e| PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(e.to_string()),
+            )?;
 
         Ok(PeriodicSpikeTrainSampler {
             period,
@@ -99,7 +99,6 @@ impl PeriodicSpikeTrainSampler {
             num_spikes_probs,
         })
     }
-
 
     /// Samples spike trains with a given number of channels.
     ///
@@ -144,7 +143,10 @@ impl PeriodicSpikeTrainSampler {
 
             // Add refractory periods to intermediate times and extend the new firing times
             new_firing_times.extend(
-                tmp_times.iter().enumerate().map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
+                tmp_times
+                    .iter()
+                    .enumerate()
+                    .map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
             );
 
             // Sort the new firing times
@@ -315,11 +317,15 @@ mod tests {
         let spike_trains = sampler.sample(2, &mut rng);
 
         for spike_train in spike_trains {
-            let mut pairs = spike_train.firing_times()
+            let mut pairs = spike_train
+                .firing_times()
                 .windows(2)
                 .map(|w| (w[0].clone(), w[1].clone()))
                 .collect::<Vec<_>>();
-            if let (Some(first), Some(last)) = (spike_train.firing_times().first(), spike_train.firing_times().last()) {
+            if let (Some(first), Some(last)) = (
+                spike_train.firing_times().first(),
+                spike_train.firing_times().last(),
+            ) {
                 pairs.push((last.clone(), first.clone()));
             }
             for (t1, t2) in pairs {

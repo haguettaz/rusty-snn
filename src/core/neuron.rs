@@ -12,16 +12,17 @@ use super::spike_train::SpikeTrainError;
 /// Represents a spiking neuron.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Neuron {
-    id: usize,
+    // id: usize,
     threshold: f64,
     firing_times: Vec<f64>,
     inputs: Vec<Input>,
 }
 
 impl Neuron {
-    pub fn new(id: usize) -> Self {
+    // pub fn new(id: usize) -> Self {
+    pub fn new() -> Self {
         Neuron {
-            id,
+            // id,
             threshold: FIRING_THRESHOLD,
             firing_times: vec![],
             inputs: vec![],
@@ -87,10 +88,10 @@ impl Neuron {
         Ok(())
     }
 
-    /// Returns the ID of the neuron.
-    pub fn id(&self) -> usize {
-        self.id
-    }
+    // /// Returns the ID of the neuron.
+    // pub fn id(&self) -> usize {
+    //     self.id
+    // }
 
     /// Returns the threshold of the neuron.
     pub fn threshold(&self) -> f64 {
@@ -107,20 +108,17 @@ impl Neuron {
         self.inputs.len()
     }
 
-    /// Add an input to the neuron with the specified parameters.
-    /// If the target neuron of the connection is not the neuron, returns an error.
-    pub fn add_input(&mut self, source_id: usize, weight: f64, firing_time: f64) {
-        let pos = self
+    /// Add an input spike to the neuron, with the specified source ID, weight, and firing time.
+    /// The inputs are sorted by firing times.
+    pub fn add_input(&mut self, weight: f64, firing_time: f64) {
+        match self
             .inputs
-            .binary_search_by(|input| {
-                input
-                    .firing_time()
-                    .partial_cmp(&firing_time)
-                    .expect("Comparison failed")
-            })
-            .unwrap_or_else(|pos| pos);
-        self.inputs
-            .insert(pos, Input::new(source_id, weight, firing_time));
+            .binary_search_by(|input| input.firing_time().partial_cmp(&firing_time).unwrap())
+        {
+            Ok(pos) | Err(pos) => self
+                .inputs
+                .insert(pos, Input::new(weight, firing_time)),
+        }
     }
 
     /// Returns a slice of inputs of the neuron.
@@ -144,33 +142,35 @@ impl Neuron {
     }
 
     /// Returns the next firing time, if any, of the neuron in the window [start, end).
-    pub fn step(&self, start: &f64, end: &f64) -> Option<(usize, f64)> {
-        let mut start = *start;
-        if let Some(&last) = self.firing_times().last() {
+    pub fn next_spike(&self, mut start: f64, end: f64) -> Option<f64> {
+        if let Some(last) = self.firing_times().last() {
             if self.potential(last + REFRACTORY_PERIOD) >= self.threshold {
-                return Some((self.id, last + REFRACTORY_PERIOD));
+                return Some(last + REFRACTORY_PERIOD);
             }
             start = start.max(last + REFRACTORY_PERIOD);
         }
 
-        if start >= *end {
+        if start >= end {
             return None;
         }
 
-        let candidates = self.inputs().iter().scan((0.0, 0.0, f64::NAN), |state, input| {
-            state.0 += input.weight() * input.firing_time().exp();
-            state.1 += input.weight() * input.firing_time() * input.firing_time().exp();
-            state.2 = state.1 / state.0
-                - lambert_w0(- self.threshold()/state.0 * (state.1 / state.0).exp());
-            Some(*state)
-        });
+        let candidates = self
+            .inputs()
+            .iter()
+            .scan((0.0, 0.0, f64::NAN), |state, input| {
+                state.0 += input.weight() * input.firing_time().exp();
+                state.1 += input.weight() * input.firing_time() * input.firing_time().exp();
+                state.2 = state.1 / state.0
+                    - lambert_w0(-self.threshold() / state.0 * (state.1 / state.0).exp()); // NaN values will be filtered out later
+                Some(*state)
+            });
 
         let firing_time = candidates
-            .map(|state| state.2)
-            .filter(|&t| t > start && t < *end)
+            .map(|(_, _, t)| t)
+            .filter(|&t| t > start && t < end)
             .min_by(|&t1, &t2| t1.partial_cmp(&t2).expect("Comparison failed"));
         match firing_time {
-            Some(t) => Some((self.id, t)),
+            Some(t) => Some(t),
             None => None,
         }
     }
@@ -180,25 +180,30 @@ impl Neuron {
 mod tests {
     use super::*;
     use std::f64::consts::E;
-    
+
     #[test]
     fn test_add_input() {
         // check that the inputs are sorted by firing times
-        let mut neuron = Neuron::new(0);
-        neuron.add_input(1, 1.0, 1.0);
+        let mut neuron = Neuron::new();
+        neuron.add_input( 1.0, 1.0);
         assert_eq!(neuron.inputs[0].firing_time(), 1.0);
-        neuron.add_input(1, 1.0, 3.0);
+        neuron.add_input(1.0, 3.0);
         assert_eq!(neuron.inputs[0].firing_time(), 1.0);
         assert_eq!(neuron.inputs[1].firing_time(), 3.0);
-        neuron.add_input(1, 1.0, 2.0);
+        neuron.add_input(1.0, 2.0);
         assert_eq!(neuron.inputs[0].firing_time(), 1.0);
         assert_eq!(neuron.inputs[1].firing_time(), 2.0);
         assert_eq!(neuron.inputs[2].firing_time(), 3.0);
+        neuron.add_input(1.0, 1.0);
+        assert_eq!(neuron.inputs[0].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[1].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[2].firing_time(), 2.0);
+        assert_eq!(neuron.inputs[3].firing_time(), 3.0);
     }
 
     #[test]
     fn test_neuron_extend_firing_times() {
-        let mut neuron = Neuron::new(0);
+        let mut neuron = Neuron::new();
         assert_eq!(neuron.extend_firing_times(&[0.0, 3.0, 7.0]), Ok(()));
         assert_eq!(neuron.firing_times, [0.0, 3.0, 7.0]);
         assert_eq!(
@@ -212,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_neuron_add_firing_time() {
-        let mut neuron = Neuron::new(0);
+        let mut neuron = Neuron::new();
         assert_eq!(neuron.add_firing_time(0.0), Ok(()));
         assert_eq!(neuron.firing_times, [0.0]);
         assert_eq!(neuron.add_firing_time(7.0), Ok(()));
@@ -226,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_neuron_fires() {
-        let mut neuron = Neuron::new(0);
+        let mut neuron = Neuron::new();
         assert_eq!(neuron.fires(0.0, 0.0), Ok(()));
         assert_eq!(neuron.firing_times, [0.0]);
         assert_eq!(neuron.threshold, FIRING_THRESHOLD);
@@ -243,78 +248,71 @@ mod tests {
 
     #[test]
     fn test_neuron_getters() {
-        let mut neuron = Neuron::new(42);
-        assert_eq!(neuron.id(), 42);
+        let mut neuron = Neuron::new();
         assert_eq!(neuron.threshold(), FIRING_THRESHOLD);
         assert_eq!(neuron.num_inputs(), 0);
         assert!(neuron.inputs().is_empty());
         assert!(neuron.firing_times().is_empty());
-        
+
         neuron.set_threshold(1.5);
         assert_eq!(neuron.threshold(), 1.5);
     }
 
     #[test]
     fn test_neuron_potential() {
-        let mut neuron = Neuron::new(0);
-        neuron.add_input(1, 1.0, 0.0);
-        neuron.add_input(2, -1.0, 1.0);
-        
+        let mut neuron = Neuron::new();
+        neuron.add_input(1.0, 0.0);
+        neuron.add_input( -1.0, 1.0);
+
         // Test potential at different times
         assert!((neuron.potential(0.0) - 0.0).abs() < 1e-10);
         assert!((neuron.potential(1.0) - (-1_f64).exp()).abs() < 1e-10);
-        assert!((neuron.potential(2.0) - (2_f64*(-2_f64).exp() - (-1_f64).exp())).abs() < 1e-10);
+        assert!((neuron.potential(2.0) - (2_f64 * (-2_f64).exp() - (-1_f64).exp())).abs() < 1e-10);
     }
 
     #[test]
     fn test_neuron_step() {
-        let mut neuron = Neuron::new(0);
-        neuron.set_threshold(1_f64/E);
-        neuron.add_input(1, 1.0, 1.0);
-        
-        // Test step with no previous firing
-        let (id, time) = neuron.step(&0.0, &3.0).unwrap();
-        assert_eq!(id, 0);
-        assert_eq!(time, 2.0);
+        let mut neuron = Neuron::new();
+        neuron.set_threshold(1_f64 / E);
+        neuron.add_input( 1.0, 1.0);
 
-        // Test step after refractory period
+        // Test next_spike with no previous firing
+        assert_eq!(neuron.next_spike(0.0, 3.0).unwrap(), 2.0);
+
+        // Test next_spike after refractory period
         neuron.add_firing_time(2.0).unwrap();
-        neuron.add_input(1, 10.0, 2.0);
-        let (id, time) = neuron.step(&0.0, &3.0).unwrap();
-        assert_eq!(id, 0);
-        assert_eq!(time, 3.0);
+        neuron.add_input(10.0, 2.0);
+        assert_eq!(neuron.next_spike(0.0, 3.0).unwrap(), 3.0);
     }
 
     #[test]
     fn test_neuron_step_hyperactive() {
-        let mut neuron = Neuron::new(0);
+        let mut neuron = Neuron::new();
         neuron.set_threshold(0.0);
-        neuron.add_input(1, 1.0, 0.0);
-        
-        let (id, time) = neuron.step(&0.0, &10.0).unwrap();
-        neuron.add_firing_time(time).unwrap();
-        assert_eq!(id, 0);
-        assert!((time).abs() < 1e-10);
 
-        let (id, time) = neuron.step(&0.0, &10.0).unwrap();
-        neuron.add_firing_time(time).unwrap();
-        assert_eq!(id, 0);
-        assert!((time-1.0).abs() < 1e-10);
+        neuron.add_input( 1.0, 0.0);
         
-        let (id, time) = neuron.step(&0.0, &10.0).unwrap();
+        let time = neuron.next_spike(0.0, 10.0).unwrap();
         neuron.add_firing_time(time).unwrap();
-        assert_eq!(id, 0);
-        assert!((time-2.0).abs() < 1e-10);
+        assert!(time.abs() < 1e-10);
+
+        let time = neuron.next_spike(0.0, 10.0).unwrap();
+        neuron.add_firing_time(time).unwrap();
+        assert!((time - 1.0).abs() < 1e-10);
+
+        let time = neuron.next_spike(0.0, 10.0).unwrap();
+        neuron.add_firing_time(time).unwrap();
+        assert!((time - 2.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_neuron_step_no_firing() {
-        let mut neuron = Neuron::new(0);
+        let mut neuron = Neuron::new();
         neuron.set_threshold(1.0);
-        neuron.add_input(1, 0.0, 1.0);
-        
+        neuron.add_input( 0.0, 1.0);
+
         // Test when potential never reaches threshold
-        let next_firing = neuron.step(&0.0, &100.0);
+        let next_firing = neuron.next_spike(0.0, 100.0);
         assert_eq!(next_firing, None);
     }
 }

@@ -21,7 +21,7 @@ use std::fmt;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Input {
     /// ID of the sending neuron
-    source_id: usize,
+    // source_id: usize,
     /// Weight of the input
     weight: f64,
     /// Times at which the sending neuron fired
@@ -40,9 +40,8 @@ impl Input {
     //     }
     // }
 
-    pub fn new(source_id: usize, weight: f64, firing_time: f64) -> Self {
+    pub fn new(weight: f64, firing_time: f64) -> Self {
         Input {
-            source_id,
             weight,
             firing_time,
         }
@@ -96,10 +95,10 @@ impl Input {
         self.firing_time
     }
 
-    /// Returns the ID of the sending neuron.
-    pub fn source_id(&self) -> usize {
-        self.source_id
-    }
+    // /// Returns the ID of the sending neuron.
+    // pub fn source_id(&self) -> usize {
+    //     self.source_id
+    // }
 }
 
 /// Represents a connection between two neurons in a network.
@@ -189,10 +188,10 @@ mod tests {
     #[test]
     fn test_connection_build() {
         let connection = Connection::build(0, 1, 0.5, 1.0).unwrap();
-        assert_eq!(connection.source_id(), 0);
-        assert_eq!(connection.target_id(), 1);
-        assert_eq!(connection.weight(), 0.5);
-        assert_eq!(connection.delay(), 1.0);
+        assert_eq!(connection.source_id, 0);
+        assert_eq!(connection.target_id, 1);
+        assert_eq!(connection.weight, 0.5);
+        assert_eq!(connection.delay, 1.0);
     }
 
     #[test]
@@ -203,9 +202,10 @@ mod tests {
 
     #[test]
     fn test_input_eval() {
-        let input = Input::new(0, 1.0, 0.0);
+        let input = Input::new( 1.0, 0.0);
         assert_eq!(input.eval(-1.0), 0.0);
         assert_eq!(input.eval(0.0), 0.0);
         assert_eq!(input.eval(1.0), 1_f64/E);
+        assert!(input.eval(1000.0).abs() < 1e-12);
     }
 }

@@ -35,6 +35,7 @@
 //! // Check the number of outputs of neuron 0
 //! assert_eq!(network.num_outputs(0), 2);
 //! ```
+
 pub mod spike_train;
 pub mod network;
 pub mod neuron;
