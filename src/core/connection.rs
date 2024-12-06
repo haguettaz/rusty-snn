@@ -75,11 +75,11 @@ impl Input {
     //         .sum()
     // }
 
-    /// Evaluate the input signal at a given time.
+    /// Evaluate the input contribution at a given time.
     pub fn eval(&self, t: f64) -> f64 {
         let dt = t - self.firing_time;
         if dt > 0.0 {
-            return self.weight * dt * (-dt).exp();
+            return self.weight * dt * (1_f64 - dt).exp();
         } else {
             return 0.0;
         }
@@ -202,10 +202,10 @@ mod tests {
 
     #[test]
     fn test_input_eval() {
-        let input = Input::new( 1.0, 0.0);
+        let input = Input::new(1.0, 0.0);
         assert_eq!(input.eval(-1.0), 0.0);
         assert_eq!(input.eval(0.0), 0.0);
-        assert_eq!(input.eval(1.0), 1_f64/E);
+        assert_eq!(input.eval(1.0), 1_f64);
         assert!(input.eval(1000.0).abs() < 1e-12);
     }
 }

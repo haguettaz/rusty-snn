@@ -97,9 +97,14 @@ impl Network {
         self.neurons.entry(id).or_insert(Neuron::new());
     }
 
-    /// Get the neuron with the specified id.
+    /// Get an immutable reference to the neuron with the specified id.
     pub fn neuron(&self, id: usize) -> Option<&Neuron> {
         self.neurons.get(&id)
+    }
+
+    /// Get a mutable reference to the neuron with the specified id.
+    pub fn mut_neuron(&mut self, id: usize) -> Option<&mut Neuron> {
+        self.neurons.get_mut(&id)
     }
 
     /// Add a connection to the network, creating source and/or target neurons if necessary.
@@ -120,15 +125,6 @@ impl Network {
         Ok(())
     }
 
-    /// Add a firing time to each inputs whose source id is equal to the given id.
-    pub fn add_input_firing_time(&mut self, id: usize, t: f64) {
-        for connection in self.connections.iter().filter(|c| c.source_id() == id) {
-            if let Some(neuron) = self.neurons.get_mut(&connection.target_id()) {
-                neuron.add_input(connection.weight(), t + connection.delay());
-            }
-        }
-    }
-
     /// Add a firing time to the neuron with the given id.
     pub fn add_firing_time(&mut self, id: usize, t: f64) -> Result<(), SpikeTrainError> {
         if let Some(neuron) = self.neurons.get_mut(&id) {
@@ -137,11 +133,31 @@ impl Network {
         Ok(())
     }
 
-    pub fn fires(&mut self, id: usize, t: f64, noise: f64) -> Result<(), SpikeTrainError> {
+    pub fn firing_times(&self, id: usize) -> Option<&[f64]> {
+        self.neurons.get(&id).map(|neuron| neuron.firing_times())
+    }
+
+    /// Add a firing time to the neuron with the given id.
+    fn fires(&mut self, id: usize, t: f64, noise: f64) -> Result<(), SpikeTrainError> {
         if let Some(neuron) = self.neurons.get_mut(&id) {
             neuron.fires(t, noise)?;
         }
         Ok(())
+    }
+
+    /// Add inputs to all neurons that receive input from the neuron with the specified id.
+    pub fn add_inputs(&mut self, id: usize, t: f64) {
+        for connection in self.connections.iter().filter(|c| c.source_id() == id) {
+            if let Some(neuron) = self.neurons.get_mut(&connection.target_id()) {
+                neuron.add_input(connection.weight(), t + connection.delay());
+            }
+        }
+    }
+
+    pub fn update_frozen_inputs(&mut self, time: f64) {
+        for neuron in self.neurons.values_mut() {
+            neuron.update_frozen_inputs(time);
+        }
     }
 
     /// Read-only access to the neurons in the network.
@@ -188,33 +204,68 @@ impl Network {
     ) -> Result<(), SpikeTrainError> {
         let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
 
+        let total_duration = program.end() - program.start();
+        let mut last_log_time = program.start();
+        let log_interval = 1.0;
+
         // Set up neuron control
         for spike_train in program.spike_trains() {
             for t in spike_train.firing_times() {
                 self.add_firing_time(spike_train.id(), *t)?;
-                self.add_input_firing_time(spike_train.id(), *t);
+                self.add_inputs(spike_train.id(), *t);
             }
         }
 
-        loop {
-            let next_spike = self
+        for (id, neuron) in self.neurons.iter() {
+            println!{"id:{}, inputs:{:?}", id, neuron.inputs()};
+        }
+
+        let mut time = program.start();
+
+        while time < program.end() {
+            // Since a new firing time can only be added as an input in the future, all inputs with firing times < time are frozen.
+            self.update_frozen_inputs(time);
+
+            // Collect the candidate next spikes from all neurons
+            let next_spikes = self
                 .neurons()
                 .iter()
                 .filter_map(|(id, neuron)| {
+                    println!("{:?}", id);
                     neuron
-                        .next_spike(program.start(), program.end())
-                        .map(|time| (*id, time))
-                })
-                .min_by(|(_, t1), (_, t2)| t1.partial_cmp(t2).unwrap());
+                        .next_spike(program.end())
+                        .map(|t| (*id, t))
+                }).collect::<Vec<(usize, f64)>>();
+                
+            println!("{:?}", next_spikes);
 
-            match next_spike {
-                Some((id, t)) => {
-                    self.fires(id, t, normal.sample(rng))?;
-                    self.add_input_firing_time(id, t);
-                }
-                None => return Ok(()),
-            };
+            // If no neuron can fire, we're done
+            if next_spikes.is_empty() {
+                return Ok(());
+            }
+
+            // Otherwise, we find the next spike time, and handle the really unlikely case of multiple neurons firing at the same time
+            time = next_spikes.iter().fold(f64::INFINITY, |acc, (_, t)| acc.min(*t));
+
+            for (id, _) in next_spikes.iter().filter(|(_, t)| *t == time) {
+                self.fires(*id, time, normal.sample(rng))?;
+                self.add_inputs(*id, time);
+            }
+
+            // Check if it's time to log progress
+            if time - last_log_time >= log_interval {
+                let progress = ((time - program.start()) / total_duration) * 100.0;
+                println!(
+                    "Simulation progress: {:.2}% (Time: {:.2}/{:.2})",
+                    progress,
+                    time,
+                    program.end()
+                );
+                last_log_time = time;
+            }
+            
         }
+        Ok(())
     }
 }
 
@@ -236,6 +287,8 @@ impl fmt::Display for NetworkError {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use tempfile::NamedTempFile;
@@ -312,10 +365,10 @@ mod tests {
         ];
         let network = Network::new(connections);
 
-        // assert_eq!(network.num_outputs(0), 6);
-        // assert_eq!(network.num_outputs(1), 1);
-        // assert_eq!(network.num_outputs(2), 0);
-        // assert_eq!(network.num_outputs(3), 0);
+        assert_eq!(network.num_outputs(0), 6);
+        assert_eq!(network.num_outputs(1), 1);
+        assert_eq!(network.num_outputs(2), 0);
+        assert_eq!(network.num_outputs(3), 0);
     }
 
     #[test]
@@ -375,6 +428,32 @@ mod tests {
     }
 
     #[test]
+    fn test_run_with_tiny_network() {
+        let connections = vec![
+            Connection::build(0, 2, 0.5, 0.5).unwrap(),
+            Connection::build(1, 2, 0.5, 0.25).unwrap(),
+            Connection::build(1, 2, -0.75, 3.5).unwrap(),
+            Connection::build(2, 3, 2.0, 1.0).unwrap(),
+            Connection::build(0, 3, -1.0, 2.5).unwrap(),
+        ];
+        let mut network = Network::new(connections);
+
+        let spike_trains = vec![
+            SpikeTrain::build(0, &[0.5]).unwrap(),
+            SpikeTrain::build(1, &[0.75]).unwrap(),
+        ];
+        let program = SimulationProgram::build(0.0, 10.0, 0.0, &spike_trains).unwrap();
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        assert_eq!(network.run(&program, &mut rng), Ok(()));
+        assert_eq!(network.firing_times(0).unwrap(), &[0.5]);
+        assert_eq!(network.firing_times(1).unwrap(), &[0.75]);
+        assert_eq!(network.firing_times(2).unwrap(), &[2.0]);
+        assert_eq!(network.firing_times(3).unwrap(), &[4.0]);
+        panic!();
+    }
+
+    #[test]
     fn test_run_with_empty_network() {
         let mut network = Network::new(vec![]);
 
@@ -400,8 +479,8 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(SEED);
         assert_eq!(network.run(&program, &mut rng), Ok(()));
-        assert_eq!(network.neuron(0).unwrap().firing_times(), &[0.0, 2.0, 5.0]);
-        assert_eq!(network.neuron(1).unwrap().firing_times(), &[1.0, 7.0]);
-        assert!(network.neuron(2).unwrap().firing_times().is_empty());
+        assert_eq!(network.firing_times(0).unwrap(), &[0.0, 2.0, 5.0]);
+        assert_eq!(network.firing_times(1).unwrap(), &[1.0, 7.0]);
+        assert!(network.firing_times(2).unwrap().is_empty());
     }
 }
