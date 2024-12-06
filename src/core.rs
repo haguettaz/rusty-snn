@@ -39,8 +39,11 @@ pub mod spike_train;
 pub mod network;
 pub mod neuron;
 pub mod connection;
+pub mod error;
 
 /// The minimum time between spikes. Can be seen as the default unit of time of a neuron.
 pub const REFRACTORY_PERIOD: f64 = 1.0;
 /// The nominal threshold for a neuron to fire.
 pub const FIRING_THRESHOLD: f64 = 1.0;
+/// Minimum number of neurons to consider parallel processing.
+pub const MIN_PARALLEL_NEURONS: usize = 100;

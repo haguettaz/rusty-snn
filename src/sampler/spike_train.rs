@@ -13,18 +13,20 @@
 //! let firing_rate = 0.2;
 //! let num_channels = 10;
 //!
-//! let sampler = PeriodicSpikeTrainSampler::new(period, firing_rate).unwrap();
-//! let firing_times = sampler.sample(num_channels, &mut rng);
+//! let sampler = PeriodicSpikeTrainSampler::build(period, firing_rate).unwrap();
+//! let spike_trains = sampler.sample(num_channels, &mut rng);
 //!
-//! for (i, train) in firing_times.iter().enumerate() {
-//!    println!("Channel {}: {:?}", i, train);
+//! for spike_train in spike_trains.iter() {
+//!    println!("Channel {}: {:?}", spike_train.id(), spike_train.firing_times());
 //! }
 //! ```
 
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand::Rng;
 use std::error::Error;
-use std::fmt;
+use std::{fmt, vec};
+
+use crate::core::spike_train::SpikeTrain;
 
 /// Error type for the `PeriodicSpikeTrainSampler` struct.
 #[derive(Debug, PartialEq)]
@@ -78,7 +80,7 @@ impl PeriodicSpikeTrainSampler {
     ///
     /// # Errors
     /// Returns an error if the period is not positive or the firing rate is negative.
-    pub fn new(period: f64, firing_rate: f64) -> Result<Self, PeriodicSpikeTrainSamplerError> {
+    pub fn build(period: f64, firing_rate: f64) -> Result<Self, PeriodicSpikeTrainSamplerError> {
         if period <= 0.0 {
             return Err(PeriodicSpikeTrainSamplerError::InvalidPeriod);
         }
@@ -87,9 +89,9 @@ impl PeriodicSpikeTrainSampler {
             return Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate);
         }
         let num_spikes_probs =
-            WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate)).map_err(|e| {
-                PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(e.to_string())
-            })?;
+            WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate)).map_err(
+                |e| PeriodicSpikeTrainSamplerError::InvalidNumSpikeWeights(e.to_string()),
+            )?;
 
         Ok(PeriodicSpikeTrainSampler {
             period,
@@ -97,7 +99,6 @@ impl PeriodicSpikeTrainSampler {
             num_spikes_probs,
         })
     }
-
 
     /// Samples spike trains with a given number of channels.
     ///
@@ -107,17 +108,17 @@ impl PeriodicSpikeTrainSampler {
     ///
     /// # Returns
     /// A vector of vectors, where each inner vector contains the firing times for a channel.
-    pub fn sample<R: Rng>(&self, num_channels: usize, rng: &mut R) -> Vec<Vec<f64>> {
-        let mut firing_times: Vec<Vec<f64>> = Vec::with_capacity(num_channels);
+    pub fn sample<R: Rng>(&self, num_channels: usize, rng: &mut R) -> Vec<SpikeTrain> {
+        let mut spike_trains: Vec<SpikeTrain> = Vec::with_capacity(num_channels);
 
         let uniform_ref = Uniform::new(0.0, self.period);
 
-        for _ in 0..num_channels {
+        for id in 0..num_channels {
             let num_spikes = self.num_spikes_probs.sample(rng);
             let mut new_firing_times = Vec::with_capacity(num_spikes);
 
             if num_spikes == 0 {
-                firing_times.push(new_firing_times);
+                spike_trains.push(SpikeTrain::build(id, &new_firing_times).unwrap());
                 continue;
             }
 
@@ -125,7 +126,7 @@ impl PeriodicSpikeTrainSampler {
             new_firing_times.push(ref_spike);
 
             if num_spikes == 1 {
-                firing_times.push(new_firing_times);
+                spike_trains.push(SpikeTrain::build(id, &new_firing_times).unwrap());
                 continue;
             }
 
@@ -142,7 +143,10 @@ impl PeriodicSpikeTrainSampler {
 
             // Add refractory periods to intermediate times and extend the new firing times
             new_firing_times.extend(
-                tmp_times.iter().enumerate().map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
+                tmp_times
+                    .iter()
+                    .enumerate()
+                    .map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
             );
 
             // Sort the new firing times
@@ -151,10 +155,10 @@ impl PeriodicSpikeTrainSampler {
                     .expect("Problem with sorting the new firing times while sampling.")
             });
 
-            firing_times.push(new_firing_times);
+            spike_trains.push(SpikeTrain::build(id, &new_firing_times).unwrap());
         }
 
-        firing_times
+        spike_trains
     }
 
     /// Computes the probabilities for the number of spikes based on the given period and firing rate.
@@ -208,19 +212,19 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     #[test]
-    fn test_sampler_new() {
+    fn test_sampler_build() {
         assert_eq!(
-            PeriodicSpikeTrainSampler::new(-10.0, 1.0),
+            PeriodicSpikeTrainSampler::build(-10.0, 1.0),
             Err(PeriodicSpikeTrainSamplerError::InvalidPeriod)
         );
 
         assert_eq!(
-            PeriodicSpikeTrainSampler::new(0.0, 1.0),
+            PeriodicSpikeTrainSampler::build(0.0, 1.0),
             Err(PeriodicSpikeTrainSamplerError::InvalidPeriod)
         );
 
         assert_eq!(
-            PeriodicSpikeTrainSampler::new(10.0, -1.0),
+            PeriodicSpikeTrainSampler::build(10.0, -1.0),
             Err(PeriodicSpikeTrainSamplerError::InvalidFiringRate)
         );
     }
@@ -297,11 +301,11 @@ mod tests {
     fn test_sample_sorted() {
         let mut rng = StdRng::seed_from_u64(42);
 
-        let sampler = PeriodicSpikeTrainSampler::new(100.0, 0.2).unwrap();
-        let firing_times = sampler.sample(10, &mut rng);
+        let sampler = PeriodicSpikeTrainSampler::build(100.0, 0.2).unwrap();
+        let spike_trains = sampler.sample(10, &mut rng);
 
-        for times in firing_times {
-            assert!(times.windows(2).all(|w| w[0] <= w[1]));
+        for spike_train in spike_trains.iter() {
+            assert!(spike_train.firing_times().windows(2).all(|w| w[0] <= w[1]));
         }
     }
 
@@ -309,15 +313,19 @@ mod tests {
     fn test_sample_refractory_period() {
         let mut rng = StdRng::seed_from_u64(42);
 
-        let sampler = PeriodicSpikeTrainSampler::new(100.0, 10.0).unwrap();
-        let firing_times = sampler.sample(2, &mut rng);
+        let sampler = PeriodicSpikeTrainSampler::build(100.0, 10.0).unwrap();
+        let spike_trains = sampler.sample(2, &mut rng);
 
-        for times in firing_times {
-            let mut pairs = times
+        for spike_train in spike_trains {
+            let mut pairs = spike_train
+                .firing_times()
                 .windows(2)
                 .map(|w| (w[0].clone(), w[1].clone()))
                 .collect::<Vec<_>>();
-            if let (Some(first), Some(last)) = (times.first(), times.last()) {
+            if let (Some(first), Some(last)) = (
+                spike_train.firing_times().first(),
+                spike_train.firing_times().last(),
+            ) {
                 pairs.push((last.clone(), first.clone()));
             }
             for (t1, t2) in pairs {
