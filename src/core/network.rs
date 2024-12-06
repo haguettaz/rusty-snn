@@ -252,7 +252,7 @@ impl Network {
             for (id, _) in next_spikes.iter().filter(|(_, t)| *t == time) {
                 self.fires(*id, time, normal.sample(rng))?;
                 self.add_inputs(*id, time);
-                num_spikes += 1;
+                // num_spikes += 1;
             }
 
             // Check if it's time to log progress
