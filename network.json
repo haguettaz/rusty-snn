@@ -1,16 +1,16 @@
 {
   "neurons": {
+    "2": {
+      "threshold": 1.0,
+      "firing_times": [],
+      "inputs": []
+    },
     "0": {
       "threshold": 1.0,
       "firing_times": [],
       "inputs": []
     },
     "1": {
-      "threshold": 1.0,
-      "firing_times": [],
-      "inputs": []
-    },
-    "2": {
       "threshold": 1.0,
       "firing_times": [],
       "inputs": []

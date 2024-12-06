@@ -3,9 +3,7 @@ use itertools::Itertools;
 
 use serde::{Deserialize, Serialize};
 use serde_json;
-use core::num;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
@@ -17,8 +15,10 @@ use rand_distr::{Distribution, Normal};
 
 use super::connection::{self, Connection, ConnectionError};
 use super::neuron::Neuron;
-use super::spike_train::SpikeTrainError;
 use crate::simulator::simulator::SimulationProgram;
+use super::error::CoreError;
+
+use crate::core::MIN_PARALLEL_NEURONS;
 
 /// Represents a spiking neural network.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -94,8 +94,8 @@ impl Network {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 
-    /// Add a neuron to the network.
-    /// If such a neuron already exists, do nothing.
+    /// Add a neuron with the given ID to the network.
+    /// If already exists, the function does nothing.
     pub fn add_neuron(&mut self, id: usize) {
         self.neurons.entry(id).or_insert(Neuron::new());
     }
@@ -129,7 +129,7 @@ impl Network {
     }
 
     /// Add a firing time to the neuron with the given id.
-    pub fn add_firing_time(&mut self, id: usize, t: f64) -> Result<(), SpikeTrainError> {
+    pub fn add_firing_time(&mut self, id: usize, t: f64) -> Result<(), CoreError> {
         if let Some(neuron) = self.neurons.get_mut(&id) {
             neuron.add_firing_time(t)?;
         }
@@ -141,11 +141,14 @@ impl Network {
     }
 
     /// Add a firing time to the neuron with the given id.
-    fn fires(&mut self, id: usize, t: f64, noise: f64) -> Result<(), SpikeTrainError> {
+    fn fires(&mut self, id: usize, t: f64, noise: f64) -> Result<(), CoreError> {
         if let Some(neuron) = self.neurons.get_mut(&id) {
             neuron.fires(t, noise)?;
+            Ok(())
         }
-        Ok(())
+        else {
+            return Err(CoreError::NeuronNotFound);
+        }
     }
 
     /// Add inputs to all neurons that receive input from the neuron with the specified id.
@@ -198,7 +201,7 @@ impl Network {
         &mut self,
         program: &SimulationProgram,
         rng: &mut R,
-    ) -> Result<(), SpikeTrainError> {
+    ) -> Result<(), CoreError> {
         let normal = Normal::new(0.0, program.threshold_noise()).unwrap();
 
         let total_duration = program.end() - program.start();
@@ -220,18 +223,22 @@ impl Network {
         let mut time = program.start();
 
         while time < program.end() {
-            // Collect the candidate next spikes from all neurons
-            let next_spikes = self
-                .neurons()
-                .par_iter()
+            // Collect the candidate next spikes from all neurons, using parallel processing if the number of neurons is large
+            let next_spikes = match self.neurons.len() > MIN_PARALLEL_NEURONS {
+                true => self.neurons().par_iter()
                 .filter_map(|(id, neuron)| {
                     neuron
                         .next_spike(time, program.end())
                         .map(|t| (*id, t))
-                }).collect::<Vec<(usize, f64)>>();
-                
-            // println!("{:?}", next_spikes);
-
+                }).collect::<Vec<(usize, f64)>>(),
+                false => self.neurons().iter()
+                .filter_map(|(id, neuron)| {
+                    neuron
+                        .next_spike(time, program.end())
+                        .map(|t| (*id, t))
+                }).collect::<Vec<(usize, f64)>>(),
+            };
+            
             // If no neuron can fire, we're done
             if next_spikes.is_empty() {
                 return Ok(());
@@ -258,22 +265,6 @@ impl Network {
             }
         }
         Ok(())
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum NetworkError {
-    /// Error for existing neurons.
-    NeuronAlreadExists,
-}
-
-impl fmt::Display for NetworkError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            NetworkError::NeuronAlreadExists => {
-                write!(f, "The neuron with the specified ID already exists")
-            }
-        }
     }
 }
 

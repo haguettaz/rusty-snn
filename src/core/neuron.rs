@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::{FIRING_THRESHOLD, REFRACTORY_PERIOD};
 
 use super::connection::Input;
-use super::spike_train::SpikeTrainError;
+use super::error::CoreError;
 
 /// Represents a spiking neuron.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -34,10 +34,10 @@ impl Neuron {
     /// Extend the neuron's firing times with new ones.
     /// If necessary, the provided firing times are sorted before being added.
     /// The function returns an error if the refractory period is violated.
-    pub fn extend_firing_times(&mut self, firing_times: &[f64]) -> Result<(), SpikeTrainError> {
+    pub fn extend_firing_times(&mut self, firing_times: &[f64]) -> Result<(), CoreError> {
         for t in firing_times {
             if !t.is_finite() {
-                return Err(SpikeTrainError::InvalidTimes);
+                return Err(CoreError::InvalidFiringTimes);
             }
         }
 
@@ -50,7 +50,7 @@ impl Neuron {
 
         for ts in firing_times.windows(2) {
             if ts[1] - ts[0] < REFRACTORY_PERIOD {
-                return Err(SpikeTrainError::RefractoryPeriodViolation {
+                return Err(CoreError::RefractoryPeriodViolation {
                     t1: ts[0],
                     t2: ts[1],
                 });
@@ -59,7 +59,7 @@ impl Neuron {
 
         if let (Some(&first), Some(&last)) = (firing_times.first(), self.firing_times.last()) {
             if first <= last + REFRACTORY_PERIOD {
-                return Err(SpikeTrainError::RefractoryPeriodViolation {
+                return Err(CoreError::RefractoryPeriodViolation {
                     t1: last,
                     t2: first,
                 });
@@ -72,10 +72,10 @@ impl Neuron {
 
     /// Add a firing time to the neuron's firing times.
     /// The function returns an error if the refractory period is violated.
-    pub fn add_firing_time(&mut self, t: f64) -> Result<(), SpikeTrainError> {
+    pub fn add_firing_time(&mut self, t: f64) -> Result<(), CoreError> {
         if let Some(&last) = self.firing_times.last() {
             if t < last + REFRACTORY_PERIOD {
-                return Err(SpikeTrainError::RefractoryPeriodViolation { t1: last, t2: t });
+                return Err(CoreError::RefractoryPeriodViolation { t1: last, t2: t });
             }
         }
 
@@ -84,7 +84,7 @@ impl Neuron {
     }
 
     /// Make the neuron fire at the specified time and update the threshold.
-    pub fn fires(&mut self, t: f64, threshold_noise: f64) -> Result<(), SpikeTrainError> {
+    pub fn fires(&mut self, t: f64, threshold_noise: f64) -> Result<(), CoreError> {
         self.add_firing_time(t)?;
         self.threshold = FIRING_THRESHOLD + threshold_noise;
         Ok(())
@@ -228,6 +228,19 @@ mod tests {
         assert_eq!(neuron.inputs[1].firing_time(), 1.0);
         assert_eq!(neuron.inputs[2].firing_time(), 2.0);
         assert_eq!(neuron.inputs[3].firing_time(), 3.0);
+        neuron.add_input(1.0, 1.0);
+        assert_eq!(neuron.inputs[0].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[1].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[2].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[3].firing_time(), 2.0);
+        assert_eq!(neuron.inputs[4].firing_time(), 3.0);
+        neuron.add_input(1.0, 2.0);
+        assert_eq!(neuron.inputs[0].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[1].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[2].firing_time(), 1.0);
+        assert_eq!(neuron.inputs[3].firing_time(), 2.0);
+        assert_eq!(neuron.inputs[4].firing_time(), 2.0);
+        assert_eq!(neuron.inputs[5].firing_time(), 3.0);
     }
 
     #[test]
@@ -237,7 +250,7 @@ mod tests {
         assert_eq!(neuron.firing_times, [0.0, 3.0, 7.0]);
         assert_eq!(
             neuron.extend_firing_times(&[6.0]),
-            Err(SpikeTrainError::RefractoryPeriodViolation { t1: 7.0, t2: 6.0 })
+            Err(CoreError::RefractoryPeriodViolation { t1: 7.0, t2: 6.0 })
         );
         assert_eq!(neuron.firing_times, [0.0, 3.0, 7.0]);
         assert_eq!(neuron.extend_firing_times(&[10.0, 12.0]), Ok(()));
@@ -253,7 +266,7 @@ mod tests {
         assert_eq!(neuron.firing_times, [0.0, 7.0]);
         assert_eq!(
             neuron.add_firing_time(5.0),
-            Err(SpikeTrainError::RefractoryPeriodViolation { t1: 7.0, t2: 5.0 })
+            Err(CoreError::RefractoryPeriodViolation { t1: 7.0, t2: 5.0 })
         );
         assert_eq!(neuron.firing_times, [0.0, 7.0]);
     }
@@ -269,7 +282,7 @@ mod tests {
         assert_eq!(neuron.threshold, FIRING_THRESHOLD + 0.25);
         assert_eq!(
             neuron.fires(5.0, 0.0),
-            Err(SpikeTrainError::RefractoryPeriodViolation { t1: 7.0, t2: 5.0 })
+            Err(CoreError::RefractoryPeriodViolation { t1: 7.0, t2: 5.0 })
         );
         assert_eq!(neuron.firing_times, [0.0, 7.0]);
         assert_eq!(neuron.threshold, FIRING_THRESHOLD + 0.25);

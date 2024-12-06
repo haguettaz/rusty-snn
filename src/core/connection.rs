@@ -20,8 +20,6 @@ use std::fmt;
 /// Represents an input to a neuron.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Input {
-    /// ID of the sending neuron
-    // source_id: usize,
     /// Weight of the input
     weight: f64,
     /// Times at which the sending neuron fired
@@ -29,51 +27,12 @@ pub struct Input {
 }
 
 impl Input {
-    // /// Create a new input with the specified parameters.
-    // /// Note that the function cannot check if the source id is valid; this check must be done at the network level.
-    // pub fn from_connection(connection: &Connection) -> Self {
-    //     Input {
-    //         source_id: connection.source_id(),
-    //         weight: connection.weight(),
-    //         delay: connection.delay(),
-    //         firing_times: vec![],
-    //     }
-    // }
-
     pub fn new(weight: f64, firing_time: f64) -> Self {
         Input {
             weight,
             firing_time,
         }
     }
-
-    // /// Add a firing time to the input.
-    // /// The function does not check the refractory period: in principle, the input can fire without any restriction.
-    // pub fn add_firing_time(&mut self, t: f64) {
-    //     self.firing_times.push(t + self.delay);
-    // }
-
-    // /// Extend the firing times of the input.
-    // /// The function does not check the refractory period: in principle, the input can fire without any restriction.
-    // pub fn extend_firing_times(&mut self, firing_times: &[f64]) {
-    //     self.firing_times
-    //         .extend(firing_times.iter().map(|ft| ft + self.delay));
-    // }
-
-    // /// Evaluate the input signal at a given time.
-    // pub fn eval(&self, t: f64) -> f64 {
-    //     self.firing_times
-    //         .iter()
-    //         .map(|ft| t - ft)
-    //         .filter_map(|dt| {
-    //             if dt > 0. {
-    //                 Some(2_f64 * dt * (-dt).exp())
-    //             } else {
-    //                 None
-    //             }
-    //         })
-    //         .sum()
-    // }
 
     /// Evaluate the input contribution at a given time.
     pub fn eval(&self, t: f64) -> f64 {
@@ -94,11 +53,6 @@ impl Input {
     pub fn firing_time(&self) -> f64 {
         self.firing_time
     }
-
-    // /// Returns the ID of the sending neuron.
-    // pub fn source_id(&self) -> usize {
-    //     self.source_id
-    // }
 }
 
 /// Represents a connection between two neurons in a network.
