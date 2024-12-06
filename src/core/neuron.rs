@@ -18,9 +18,6 @@ pub struct Neuron {
     threshold: f64,
     firing_times: Vec<f64>,
     inputs: Vec<Input>,
-    a_frozen: f64,
-    b_frozen: f64,
-    pos_frozen: usize,
 }
 
 impl Neuron {
@@ -31,9 +28,6 @@ impl Neuron {
             threshold: FIRING_THRESHOLD,
             firing_times: vec![],
             inputs: vec![],
-            a_frozen: 0.0,
-            b_frozen: 0.0,
-            pos_frozen: 0,
         }
     }
 
@@ -144,21 +138,30 @@ impl Neuron {
     ///
     #[embed_doc_image("neuron", "images/neuron.svg")]
     pub fn potential(&self, t: f64) -> f64 {
-        self.inputs[self.pos_frozen..].iter().fold(
-            (1_f64 - t).exp() * (t * self.a_frozen - self.b_frozen),
-            |acc, input| acc + input.eval(t),
-        )
+        self.inputs
+            .iter()
+            .fold(0.0, |acc, input| acc + input.eval(t))
     }
 
-    /// Update neuron's frozen inputs during simulation to improve efficiency.
-    /// The values of `a` and `b` for the neuron at the current time are updated, see Comsa et al. (2022).
-    pub fn update_frozen_inputs(&mut self, time: f64) {
-        let last_pos_frozen = self.pos_frozen;
+    /// Returns the next firing time of the neuron (up to end), if any.
+    pub fn next_spike(&self, mut time: f64, max_time: f64) -> Option<f64> {
+        if let Some(last) = self.firing_times().last() {
+            time = last + REFRACTORY_PERIOD;
+            match (
+                self.potential(time) >= self.threshold,
+                time < max_time,
+            ) {
+                (false, _) => (),
+                (true, true) => return Some(time),
+                (true, false) => return None,
+            }
+        }
 
-        self.pos_frozen = self
+        let mut firing_time = f64::NAN;
+        let pos = self
             .inputs
             .binary_search_by(|input| {
-                if input.firing_time() > time {
+                if input.firing_time() >= time {
                     std::cmp::Ordering::Greater
                 } else {
                     std::cmp::Ordering::Less
@@ -166,102 +169,46 @@ impl Neuron {
             })
             .unwrap_or_else(|pos| pos);
 
-        match last_pos_frozen > self.pos_frozen {
-            true => {
-                self.a_frozen -= self.inputs[self.pos_frozen..last_pos_frozen]
-                    .iter()
-                    .map(|input| input.weight() * (input.firing_time()).exp())
-                    .sum::<f64>();
-                self.b_frozen -= self.inputs[self.pos_frozen..last_pos_frozen]
-                    .iter()
-                    .map(|input| input.weight() * input.firing_time() * (input.firing_time()).exp())
-                    .sum::<f64>();
-            }
-            false => {
-                self.a_frozen += self.inputs[last_pos_frozen..self.pos_frozen]
-                    .iter()
-                    .map(|input| input.weight() * (input.firing_time()).exp())
-                    .sum::<f64>();
-                self.b_frozen += self.inputs[last_pos_frozen..self.pos_frozen]
-                    .iter()
-                    .map(|input| input.weight() * input.firing_time() * (input.firing_time()).exp())
-                    .sum::<f64>();
-            }
-        }
-        println!(
-            "time: {}, pos_frozen: {}, a: {}, b: {}",
-            time, self.pos_frozen, self.a_frozen, self.b_frozen
-        );
-    }
-
-    /// Returns the next firing time of the neuron (up to end), if any.
-    pub fn next_spike(&self, end: f64) -> Option<f64> {
-        if let Some(last) = self.firing_times().last() {
-            if self.potential(last + REFRACTORY_PERIOD) >= self.threshold {
-                return Some(last + REFRACTORY_PERIOD);
-            }
-            // start = start.max(last + REFRACTORY_PERIOD);
-        }
-
-        // if start >= end {
-        //     return None;
-        // }
-
-        let mut firing_time = f64::NAN;
-        let mut a = self.a_frozen;
-        let mut b = self.b_frozen;
-
-        for input in &self.inputs[self.pos_frozen..] {
+        for (i, input) in self.inputs[pos..].iter().enumerate() {
             if firing_time <= input.firing_time() {
-                break
+                break;
             }
 
-            a += input.weight() * input.firing_time().exp();
-            b += input.weight() * input.firing_time() * input.firing_time().exp();
+            let (a, b) = self.inputs[..=pos + i]
+                .iter()
+                .fold((0.0, 0.0), |(mut a, mut b), item| {
+                    a += item.weight() * (item.firing_time() - input.firing_time()).exp();
+                    b += item.weight()
+                        * item.firing_time()
+                        * (item.firing_time() - input.firing_time()).exp();
+                    (a, b)
+                });
 
-            firing_time = b / a - lambert_w0(-self.threshold() / a * (b / a - 1.0).exp());
+            firing_time = match a == 0.0 {
+                true => input.firing_time() + 1.0 + (-b / self.threshold()).ln(),
+                false => {
+                    b / a
+                        - lambert_w0(
+                            -self.threshold() / a * (b / a - 1.0 - input.firing_time()).exp(),
+                        )
+                }
+            };
 
-            // is there a cleaner way to handle this noncausal edge case???
-            if firing_time < input.firing_time() {
-                // println!("firing_time: {}", firing_time);
+            if firing_time < input.firing_time() || firing_time > max_time {
                 firing_time = f64::NAN;
             }
-            // println!("input: {:?}, a: {}, b: {}, firing_time: {}, arg: {}", input, a, b, firing_time, -self.threshold() / a * (b / a - 1.0).exp());
         }
 
-        if (firing_time.is_finite()) && (firing_time < end) {
-            return Some(firing_time)
+        match firing_time.is_finite() {
+            true => Some(firing_time),
+            false => None,
         }
-
-        None
-
-        // let candidates = self.inputs[self.pos_frozen..]
-        //     .iter()
-        //     .filter(|input| input.firing_time() < end)
-        //     .scan((self.a_frozen, self.b_frozen, f64::NAN), |state, input| {
-        //         state.0 += input.weight() * input.firing_time().exp();
-        //         state.1 += input.weight() * input.firing_time() * input.firing_time().exp();
-        //         state.2 = state.1 / state.0
-        //             - lambert_w0(-self.threshold() * (state.1 / state.0 - 1.0).exp() / state.0); // NaN values will be filtered out later
-        //         println!("a: {}, b: {}, t: {}", state.0, state.1, state.2);
-        //         Some(*state)
-        //     });
-
-        // let firing_time = candidates
-        //     .map(|(_, _, t)| t)
-        //     .filter(|&t| t > start && t < end)
-        //     .min_by(|&t1, &t2| t1.partial_cmp(&t2).expect("Comparison failed"));
-        // match firing_time {
-        //     Some(t) => Some(t),
-        //     None => None,
-        // }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f64::consts::E;
 
     #[test]
     fn test_add_input() {
@@ -357,52 +304,25 @@ mod tests {
         // Test single inputs with no previous firing
         let mut neuron = Neuron::new();
         neuron.add_input(1.0, 1.0);
-        assert_eq!(neuron.next_spike(10.0).unwrap(), 2.0);
+        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 2.0);
         let mut neuron = Neuron::new();
         neuron.add_input(-1.0, 1.0);
-        assert_eq!(neuron.next_spike(10.0), None);
+        assert_eq!(neuron.next_spike(0.0, 100.0), None);
 
         // Test next_spike with no previous firing
         let mut neuron = Neuron::new();
         neuron.add_input(1.0, 1.0);
-        assert_eq!(neuron.next_spike(10.0).unwrap(), 2.0);
+        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 2.0);
         neuron.add_input(-1.0, 1.0);
-        assert_eq!(neuron.next_spike(10.0), None);
+        assert_eq!(neuron.next_spike(0.0, 100.0), None);
         neuron.add_input(1.0, 1.0);
-        assert_eq!(neuron.next_spike(10.0).unwrap(), 2.0);
+        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 2.0);
 
         // Test next_spike after refractory period
         let mut neuron = Neuron::new();
         neuron.add_firing_time(2.0).unwrap();
         neuron.add_input(10.0, 1.0);
-        assert_eq!(neuron.next_spike(10.0).unwrap(), 3.0);
-    }
-
-    #[test]
-    fn test_neuron_update_frozen_inputs() {
-        let mut neuron = Neuron::new();
-        neuron.update_frozen_inputs(2.0);
-        assert_eq!(neuron.a_frozen, 0.0);
-        assert_eq!(neuron.b_frozen, 0.0);
-        assert_eq!(neuron.pos_frozen, 0);
-
-        neuron.add_input(1.0, 0.0);
-        neuron.update_frozen_inputs(2.0);
-        assert_eq!(neuron.a_frozen, 1.0);
-        assert_eq!(neuron.b_frozen, 0.0);
-        assert_eq!(neuron.pos_frozen, 1);
-
-        neuron.add_input(1.0, 2.0);
-        neuron.update_frozen_inputs(2.0);
-        assert_eq!(neuron.a_frozen, 1.0 + 2.0_f64.exp());
-        assert_eq!(neuron.b_frozen, 2.0 * 2.0_f64.exp());
-        assert_eq!(neuron.pos_frozen, 2);
-
-        neuron.add_input(1.0, 5.0);
-        neuron.update_frozen_inputs(4.0);
-        assert_eq!(neuron.a_frozen, 1.0 + 2.0_f64.exp());
-        assert_eq!(neuron.b_frozen, 2.0 * 2.0_f64.exp());
-        assert_eq!(neuron.pos_frozen, 2);
+        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 3.0);
     }
 
     #[test]
@@ -412,15 +332,15 @@ mod tests {
 
         neuron.add_input(1.0, 0.0);
 
-        let time = neuron.next_spike(10.0).unwrap();
+        let time = neuron.next_spike(0.0, 100.0).unwrap();
         neuron.add_firing_time(time).unwrap();
         assert!(time.abs() < 1e-10);
 
-        let time = neuron.next_spike(10.0).unwrap();
+        let time = neuron.next_spike(0.0, 100.0).unwrap();
         neuron.add_firing_time(time).unwrap();
         assert!((time - 1.0).abs() < 1e-10);
 
-        let time = neuron.next_spike(10.0).unwrap();
+        let time = neuron.next_spike(0.0, 100.0).unwrap();
         neuron.add_firing_time(time).unwrap();
         assert!((time - 2.0).abs() < 1e-10);
     }
@@ -432,7 +352,7 @@ mod tests {
         neuron.add_input(0.0, 1.0);
 
         // Test when potential never reaches threshold
-        let next_firing = neuron.next_spike(100.0);
+        let next_firing = neuron.next_spike(0.0, 100.0);
         assert_eq!(next_firing, None);
     }
 }

@@ -3,11 +3,14 @@ use itertools::Itertools;
 
 use serde::{Deserialize, Serialize};
 use serde_json;
+use core::num;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
+
+use rayon::prelude::*;
 
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
@@ -154,12 +157,6 @@ impl Network {
         }
     }
 
-    pub fn update_frozen_inputs(&mut self, time: f64) {
-        for neuron in self.neurons.values_mut() {
-            neuron.update_frozen_inputs(time);
-        }
-    }
-
     /// Read-only access to the neurons in the network.
     pub fn neurons(&self) -> &HashMap<usize, Neuron> {
         &self.neurons
@@ -216,28 +213,24 @@ impl Network {
             }
         }
 
-        for (id, neuron) in self.neurons.iter() {
-            println!{"id:{}, inputs:{:?}", id, neuron.inputs()};
-        }
+        // for (id, neuron) in self.neurons.iter() {
+        //     println!{"id:{}, inputs:{:?}", id, neuron.inputs()};
+        // }
 
         let mut time = program.start();
 
         while time < program.end() {
-            // Since a new firing time can only be added as an input in the future, all inputs with firing times < time are frozen.
-            self.update_frozen_inputs(time);
-
             // Collect the candidate next spikes from all neurons
             let next_spikes = self
                 .neurons()
-                .iter()
+                .par_iter()
                 .filter_map(|(id, neuron)| {
-                    println!("{:?}", id);
                     neuron
-                        .next_spike(program.end())
+                        .next_spike(time, program.end())
                         .map(|t| (*id, t))
                 }).collect::<Vec<(usize, f64)>>();
                 
-            println!("{:?}", next_spikes);
+            // println!("{:?}", next_spikes);
 
             // If no neuron can fire, we're done
             if next_spikes.is_empty() {
@@ -263,7 +256,6 @@ impl Network {
                 );
                 last_log_time = time;
             }
-            
         }
         Ok(())
     }
@@ -287,8 +279,6 @@ impl fmt::Display for NetworkError {
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
-
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use tempfile::NamedTempFile;
@@ -450,7 +440,6 @@ mod tests {
         assert_eq!(network.firing_times(1).unwrap(), &[0.75]);
         assert_eq!(network.firing_times(2).unwrap(), &[2.0]);
         assert_eq!(network.firing_times(3).unwrap(), &[4.0]);
-        panic!();
     }
 
     #[test]
