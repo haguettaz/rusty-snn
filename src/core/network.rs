@@ -221,6 +221,7 @@ impl Network {
         // }
 
         let mut time = program.start();
+        // let mut num_spikes = self.neurons().iter().map(|(_, neuron)| neuron.firing_times().len()).sum::<usize>();
 
         while time < program.end() {
             // Collect the candidate next spikes from all neurons, using parallel processing if the number of neurons is large
@@ -241,6 +242,7 @@ impl Network {
             
             // If no neuron can fire, we're done
             if next_spikes.is_empty() {
+                println!("Network activity has ceased...");
                 return Ok(());
             }
 
@@ -250,6 +252,7 @@ impl Network {
             for (id, _) in next_spikes.iter().filter(|(_, t)| *t == time) {
                 self.fires(*id, time, normal.sample(rng))?;
                 self.add_inputs(*id, time);
+                num_spikes += 1;
             }
 
             // Check if it's time to log progress
@@ -263,6 +266,10 @@ impl Network {
                 );
                 last_log_time = time;
             }
+
+            // if num_spikes % 10 == 0 {
+            //     println!("num_spikes: {}", num_spikes);
+            // }
         }
         Ok(())
     }

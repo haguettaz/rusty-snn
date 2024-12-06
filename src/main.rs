@@ -6,9 +6,9 @@ use rusty_snn::sampler::spike_train::PeriodicSpikeTrainSampler;
 use rusty_snn::simulator::simulator::SimulationProgram;
 
 const SEED: u64 = 42;
-const NUM_NEURONS: usize = 200;
-const NUM_CONNECTIONS: usize = 1000;
-const WEIGHT_RANGE: (f64, f64) = (-1.0, 1.0);
+const NUM_NEURONS: usize = 500;
+const NUM_CONNECTIONS: usize = 10000;
+const WEIGHT_RANGE: (f64, f64) = (0.0, 0.2);
 const DELAY_RANGE: (f64, f64) = (0.1, 10.0);
 const PERIOD: f64 = 100.0;
 const FIRING_RATE: f64 = 0.2;
