@@ -14,6 +14,10 @@ pub enum CoreError {
     IncompatibleSpikeTrains,
     /// Error for neuron not found in the network.
     NeuronNotFound,
+    /// Error for incompatible topology, e.g., the number of connections and neurons do not fit.
+    IncompatibleTopology,
+    /// Error for invalid delay values, e.g., negative values.
+    InvalidDelay
 }
 
 impl fmt::Display for CoreError {
@@ -25,6 +29,8 @@ impl fmt::Display for CoreError {
             CoreError::NeuronNotFound => {
                 write!(f, "Neuron not found in the network")
             }
+            CoreError::InvalidDelay => write!(f, "Invalid delay value: must be non-negative"),
+            CoreError::IncompatibleTopology => write!(f, "The connectivity topology is not compatible with the number of connections and neurons"),
         }
     }
 }
