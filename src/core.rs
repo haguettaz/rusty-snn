@@ -15,15 +15,14 @@
 //! 
 //! // Init an empty network and add a few neurons and connections
 //! let mut network = Network::new();
-//! network.add_connection(0, 1, 1.0, 1.0).unwrap();
-//! network.add_connection(1, 2, 1.0, 1.0).unwrap();
-//! network.add_connection(2, 3, 1.0, 1.0).unwrap();
+//! network.add_connection(0, 1, 1.0, 0.25).unwrap();
+//! network.add_connection(2, 3, -0.75, 1.0).unwrap();
+//! network.add_connection(1, 2, 0.25, 2.0).unwrap();
+//! network.add_connection(0, 1, -0.5, 0.5).unwrap();
 //! 
-//! // Check the number of neurons in the network
 //! assert_eq!(network.num_neurons(), 4);
+//! assert_eq!(network.num_connections(), 4);
 //! 
-//! // Check the number of connections in the network
-//! assert_eq!(network.num_connections(), 3);
 //! ```
 pub mod spike_train;
 pub mod network;

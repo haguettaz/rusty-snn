@@ -1,17 +1,18 @@
 //! Module implementing the spiking neural networks.
 
-use serde::{Deserialize, Serialize};
-use serde::ser::{SerializeStruct, Serializer};
+use core::f64;
 use serde::de::Deserializer;
+use serde::ser::{SerializeStruct, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::fs::File;
 
+use rand::distributions::{Distribution, Uniform};
+use rand::seq::SliceRandom;
+use rand_distr::Normal;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
-use rand::distributions::{Distribution, Uniform};
-use rand_distr::Normal;
-use rand::seq::SliceRandom;
 
 use rand::Rng;
 
@@ -21,7 +22,6 @@ use super::connection::Connection;
 use super::error::CoreError;
 use super::neuron::Neuron;
 use crate::simulator::simulator::SimulationProgram;
-
 
 use crate::core::MIN_PARALLEL_NEURONS;
 
@@ -60,9 +60,7 @@ impl Serialize for Network {
         let connections: HashMap<String, &Vec<Connection>> = self
             .connections
             .iter()
-            .map(|(&(id1, id2), connections)| {
-                (format!("({}, {})", id1, id2), connections)
-            })
+            .map(|(&(id1, id2), connections)| (format!("({}, {})", id1, id2), connections))
             .collect();
         s.serialize_field("connections", &connections)?;
 
@@ -107,8 +105,8 @@ impl Network {
     /// Create a new empty network.
     pub fn new() -> Self {
         Network {
-            neurons:HashMap::new(),
-            connections:HashMap::new(),
+            neurons: HashMap::new(),
+            connections: HashMap::new(),
         }
     }
 
@@ -127,13 +125,20 @@ impl Network {
     /// let lim_delays = (0.1, 10.0);
     /// let topology = Topology::Random;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// 
+    ///
     /// let network = Network::rand(num_neurons, num_connections, lim_weights, lim_delays, topology, &mut rng).unwrap();
-    /// 
+    ///
     /// assert_eq!(network.num_neurons(), 10);
     /// assert_eq!(network.num_connections(), 100);
     /// ```
-    pub fn rand<R: Rng>(num_neurons: usize, num_connections: usize, lim_weights: (f64, f64),lim_delays: (f64, f64), topology: Topology, rng: &mut R) -> Result<Network, CoreError> {
+    pub fn rand<R: Rng>(
+        num_neurons: usize,
+        num_connections: usize,
+        lim_weights: (f64, f64),
+        lim_delays: (f64, f64),
+        topology: Topology,
+        rng: &mut R,
+    ) -> Result<Network, CoreError> {
         let mut network = Network::new();
 
         let (min_weight, max_weight) = lim_weights;
@@ -145,36 +150,52 @@ impl Network {
         let delay_dist = Uniform::new_inclusive(min_delay, max_delay);
 
         if !matches!(topology, Topology::Random) && num_connections % num_neurons != 0 {
-            return Err(CoreError::IncompatibleTopology);
+            return Err(CoreError::IncompatibleTopology {num_neurons, num_connections});
         }
 
         let (source_ids, target_ids) = match topology {
             Topology::Random => {
                 let dist = Uniform::new(0, num_neurons);
-                let source_ids = (0..num_connections).map(|_| dist.sample(rng)).collect::<Vec<usize>>();
-                let target_ids = (0..num_connections).map(|_| dist.sample(rng)).collect::<Vec<usize>>();
+                let source_ids = (0..num_connections)
+                    .map(|_| dist.sample(rng))
+                    .collect::<Vec<usize>>();
+                let target_ids = (0..num_connections)
+                    .map(|_| dist.sample(rng))
+                    .collect::<Vec<usize>>();
                 (source_ids, target_ids)
-            },
+            }
             Topology::Fin => {
                 let dist = Uniform::new(0, num_neurons);
-                let source_ids = (0..num_connections).map(|_| dist.sample(rng)).collect::<Vec<usize>>();
-                let target_ids = (0..num_connections).map(|i| i % num_neurons).collect::<Vec<usize>>();
+                let source_ids = (0..num_connections)
+                    .map(|_| dist.sample(rng))
+                    .collect::<Vec<usize>>();
+                let target_ids = (0..num_connections)
+                    .map(|i| i % num_neurons)
+                    .collect::<Vec<usize>>();
                 (source_ids, target_ids)
-            },
+            }
             Topology::Fout => {
                 let dist = Uniform::new(0, num_neurons);
-                let source_ids = (0..num_connections).map(|i| i % num_neurons).collect::<Vec<usize>>();
-                let target_ids = (0..num_connections).map(|_| dist.sample(rng)).collect::<Vec<usize>>();
+                let source_ids = (0..num_connections)
+                    .map(|i| i % num_neurons)
+                    .collect::<Vec<usize>>();
+                let target_ids = (0..num_connections)
+                    .map(|_| dist.sample(rng))
+                    .collect::<Vec<usize>>();
                 (source_ids, target_ids)
-            },
+            }
             Topology::FinFout => {
-                let source_ids = (0..num_connections).map(|i| i % num_neurons).collect::<Vec<usize>>();
-                let mut target_ids = (0..num_connections).map(|i| i % num_neurons).collect::<Vec<usize>>();
+                let source_ids = (0..num_connections)
+                    .map(|i| i % num_neurons)
+                    .collect::<Vec<usize>>();
+                let mut target_ids = (0..num_connections)
+                    .map(|i| i % num_neurons)
+                    .collect::<Vec<usize>>();
                 target_ids.shuffle(rng);
                 (source_ids, target_ids)
-            },
+            }
         };
-        
+
         for (source_id, target_id) in source_ids.into_iter().zip(target_ids.into_iter()) {
             let weight = weight_dist.sample(rng);
             let delay = delay_dist.sample(rng);
@@ -310,6 +331,18 @@ impl Network {
         self.connections.iter().map(|(_, v)| v.len()).sum()
     }
 
+    /// Returns the number of connections in the network that satisfy the given predicate.
+    fn num_connections_filtered<F>(&self, predicate: F) -> usize
+    where
+        F: Fn(&(usize, usize)) -> bool,
+    {
+        self.connections
+            .iter()
+            .filter(|&(key, _)| predicate(key))
+            .map(|(_, connections)| connections.len())
+            .sum()
+    }
+
     /// Returns the number of connections in the network between neurons with the specified ids.
     pub fn num_connections_from_to(&self, source_id: usize, target_id: usize) -> usize {
         self.connections
@@ -320,20 +353,12 @@ impl Network {
 
     /// Returns the number of inputs to the neuron with the specified id.
     pub fn num_connections_from(&self, id: usize) -> usize {
-        self.connections
-            .iter()
-            .filter(|&(&(source_id, _), _)| source_id == id)
-            .map(|(_, connections)| connections.len())
-            .sum()
+        self.num_connections_filtered(|&(source_id, _)| source_id == id)
     }
 
     /// Returns the number of outputs to the neuron with the specified id.
     pub fn num_connections_to(&self, id: usize) -> usize {
-        self.connections
-            .iter()
-            .filter(|&(&(_, target_id), _)| target_id == id)
-            .map(|(_, connections)| connections.len())
-            .sum()
+        self.num_connections_filtered(|&(_, target_id)| target_id == id)
     }
 
     /// Event-based simulation of the network.
@@ -368,16 +393,12 @@ impl Network {
                 true => self
                     .neurons()
                     .par_iter()
-                    .filter_map(|(id, neuron)| {
-                        neuron.next_spike(time).map(|t| (*id, t))
-                    })
+                    .filter_map(|(id, neuron)| neuron.next_spike(time).map(|t| (*id, t)))
                     .collect::<Vec<(usize, f64)>>(),
                 false => self
                     .neurons()
                     .iter()
-                    .filter_map(|(id, neuron)| {
-                        neuron.next_spike(time).map(|t| (*id, t))
-                    })
+                    .filter_map(|(id, neuron)| neuron.next_spike(time).map(|t| (*id, t)))
                     .collect::<Vec<(usize, f64)>>(),
             };
 
@@ -405,7 +426,7 @@ impl Network {
             // Get the greatest among all accepted spikes
             time = next_spikes
                 .iter()
-                .fold(-f64::INFINITY, |acc, (_, t)| acc.max(*t));
+                .fold(f64::NEG_INFINITY, |acc, (_, t)| acc.max(*t));
 
             for (id, t) in next_spikes.iter() {
                 self.fires(*id, *t, normal.sample(rng))?;
@@ -478,8 +499,26 @@ mod tests {
         assert_eq!(network.num_connections_from_to(0, 3), 1);
         assert_eq!(network.num_connections_from_to(2, 3), 3);
 
-        assert_eq!(network.connections.get(&(2, 3)).unwrap().first().unwrap().delay(), 0.25);
-        assert_eq!(network.connections.get(&(2, 3)).unwrap().last().unwrap().delay(), 5.0);
+        assert_eq!(
+            network
+                .connections
+                .get(&(2, 3))
+                .unwrap()
+                .first()
+                .unwrap()
+                .delay(),
+            0.25
+        );
+        assert_eq!(
+            network
+                .connections
+                .get(&(2, 3))
+                .unwrap()
+                .last()
+                .unwrap()
+                .delay(),
+            5.0
+        );
     }
 
     #[test]
@@ -506,48 +545,68 @@ mod tests {
     fn test_rand_network() {
         let mut rng = StdRng::seed_from_u64(SEED);
 
-        let network = Network::rand(277, 769, (-0.1, 0.1), (0.1, 10.0), Topology::Random, &mut rng).unwrap();
+        let network = Network::rand(
+            277,
+            769,
+            (-0.1, 0.1),
+            (0.1, 10.0),
+            Topology::Random,
+            &mut rng,
+        )
+        .unwrap();
         assert_eq!(network.num_neurons(), 277);
         assert_eq!(network.num_connections(), 769);
-        assert!(network.connections.iter().all(|((source_id, target_id), connections)| {
-            *source_id < 277 && *target_id < 277 &&
-                connections.iter().all(|connection| {
-                    connection.weight() >= -0.1 && connection.weight() <= 0.1
-                        && connection.delay() >= 0.1 && connection.delay() <= 10.0
-                })
+        assert!(network
+            .connections
+            .iter()
+            .all(|((source_id, target_id), connections)| {
+                *source_id < 277
+                    && *target_id < 277
+                    && connections.iter().all(|connection| {
+                        connection.weight() >= -0.1
+                            && connection.weight() <= 0.1
+                            && connection.delay() >= 0.1
+                            && connection.delay() <= 10.0
+                    })
             }));
 
-        let network = Network::rand(20, 400, (-0.1, 0.1), (0.1, 10.0), Topology::FinFout, &mut rng).unwrap();
+        let network = Network::rand(
+            20,
+            400,
+            (-0.1, 0.1),
+            (0.1, 10.0),
+            Topology::FinFout,
+            &mut rng,
+        )
+        .unwrap();
         assert_eq!(network.num_neurons(), 20);
         assert_eq!(network.num_connections(), 400);
         assert!((0..20).all(|id| {
             network.num_connections_from(id) == 20 && network.num_connections_to(id) == 20
         }));
 
-        let network = Network::rand(20, 400, (-0.1, 0.1), (0.1, 10.0), Topology::Fin, &mut rng).unwrap();
+        let network =
+            Network::rand(20, 400, (-0.1, 0.1), (0.1, 10.0), Topology::Fin, &mut rng).unwrap();
         assert_eq!(network.num_neurons(), 20);
         assert_eq!(network.num_connections(), 400);
-        assert!((0..20).all(|id| {
-            network.num_connections_to(id) == 20
-            }));
+        assert!((0..20).all(|id| { network.num_connections_to(id) == 20 }));
 
-        let network = Network::rand(20, 400, (-0.1, 0.1), (0.1, 10.0), Topology::Fout, &mut rng).unwrap();
+        let network =
+            Network::rand(20, 400, (-0.1, 0.1), (0.1, 10.0), Topology::Fout, &mut rng).unwrap();
         assert_eq!(network.num_neurons(), 20);
         assert_eq!(network.num_connections(), 400);
-        assert!((0..20).all(|id| {
-            network.num_connections_from(id) == 20
-            }));
+        assert!((0..20).all(|id| { network.num_connections_from(id) == 20 }));
     }
 
     #[test]
     fn test_run_with_tiny_network() {
         let mut network = Network::new();
 
-        network.add_connection(0,2,0.5,0.5).unwrap();
-        network.add_connection(1,2,0.5,0.25).unwrap();
-        network.add_connection(1,2,-0.75,3.5).unwrap();
-        network.add_connection(2,3,2.0,1.0).unwrap();
-        network.add_connection(0,3,-1.0,2.5).unwrap();
+        network.add_connection(0, 2, 0.5, 0.5).unwrap();
+        network.add_connection(1, 2, 0.5, 0.25).unwrap();
+        network.add_connection(1, 2, -0.75, 3.5).unwrap();
+        network.add_connection(2, 3, 2.0, 1.0).unwrap();
+        network.add_connection(0, 3, -1.0, 2.5).unwrap();
 
         let spike_trains = vec![
             SpikeTrain::build(0, &[0.5]).unwrap(),

@@ -15,7 +15,7 @@ pub enum CoreError {
     /// Error for neuron not found in the network.
     NeuronNotFound,
     /// Error for incompatible topology, e.g., the number of connections and neurons do not fit.
-    IncompatibleTopology,
+    IncompatibleTopology {num_neurons: usize, num_connections: usize},
     /// Error for invalid delay values, e.g., negative values.
     InvalidDelay
 }
@@ -30,7 +30,7 @@ impl fmt::Display for CoreError {
                 write!(f, "Neuron not found in the network")
             }
             CoreError::InvalidDelay => write!(f, "Invalid delay value: must be non-negative"),
-            CoreError::IncompatibleTopology => write!(f, "The connectivity topology is not compatible with the number of connections and neurons"),
+            CoreError::IncompatibleTopology {num_neurons, num_connections} => write!(f, "Number of connections ({}) must be divisible by number of neurons ({}) for the selected topology", num_connections, num_neurons),
         }
     }
 }
