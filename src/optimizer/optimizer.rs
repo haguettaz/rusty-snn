@@ -81,6 +81,5 @@ pub fn dfdbd(x: &mut DVector<f64>, c: &DMatrix<f64>, y: &DVector<f64>, v: &mut D
 
         // backward deciding
         
-
     }
 }
