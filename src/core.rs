@@ -10,30 +10,20 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```rust
 //! use rusty_snn::core::{network::Network, neuron::Neuron, connection::Connection};
-//!
 //! 
-//! // Create a list of connections between neurons
-//! let connections = vec![Connection::build(0, 1, 1.0, 1.0).unwrap(), Connection::build(1, 2, -1.0, 2.0).unwrap()];
+//! // Init an empty network and add a few neurons and connections
+//! let mut network = Network::new();
+//! network.add_connection(0, 1, 1.0, 0.25).unwrap();
+//! network.add_connection(0, 1, -0.5, 0.5).unwrap();
+//! network.add_connection(2, 3, -0.75, 1.0).unwrap();
+//! network.add_connection(3, 3, 0.25, 0.125).unwrap();
+//! network.add_connection(1, 2, 0.25, 2.0).unwrap();
 //! 
-//! // Create a network with the specified connections
-//! let mut network = Network::new(connections);
+//! assert_eq!(network.num_neurons(), 4);
+//! assert_eq!(network.num_connections(), 5);
 //! 
-//! // Add a new neuron 42 to the network
-//! network.add_neuron(42);
-//! 
-//! // Add a connection from neuron 0 to (a new) neuron 7
-//! network.add_connection(0, 7, 1.0, 1.0).unwrap();
-//! 
-//! // Check the number of neurons in the network
-//! assert_eq!(network.num_neurons(), 5);
-//! 
-//! // Check the number of connections in the network
-//! assert_eq!(network.num_connections(), 3);
-//! 
-//! // Check the number of outputs of neuron 0
-//! assert_eq!(network.num_outputs(0), 2);
 //! ```
 pub mod spike_train;
 pub mod network;

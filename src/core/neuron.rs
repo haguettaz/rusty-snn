@@ -144,16 +144,11 @@ impl Neuron {
     }
 
     /// Returns the next firing time of the neuron (up to end), if any.
-    pub fn next_spike(&self, mut time: f64, max_time: f64) -> Option<f64> {
+    pub fn next_spike(&self, mut time: f64) -> Option<f64> {
         if let Some(last) = self.firing_times().last() {
             time = last + REFRACTORY_PERIOD;
-            match (
-                self.potential(time) >= self.threshold,
-                time < max_time,
-            ) {
-                (false, _) => (),
-                (true, true) => return Some(time),
-                (true, false) => return None,
+            if self.potential(time) >= self.threshold {
+                return Some(time);
             }
         }
 
@@ -194,7 +189,7 @@ impl Neuron {
                 }
             };
 
-            if firing_time < input.firing_time() || firing_time > max_time {
+            if firing_time < input.firing_time() {
                 firing_time = f64::NAN;
             }
         }
@@ -317,25 +312,25 @@ mod tests {
         // Test single inputs with no previous firing
         let mut neuron = Neuron::new();
         neuron.add_input(1.0, 1.0);
-        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 2.0);
+        assert_eq!(neuron.next_spike(0.0).unwrap(), 2.0);
         let mut neuron = Neuron::new();
         neuron.add_input(-1.0, 1.0);
-        assert_eq!(neuron.next_spike(0.0, 100.0), None);
+        assert_eq!(neuron.next_spike(0.0), None);
 
         // Test next_spike with no previous firing
         let mut neuron = Neuron::new();
         neuron.add_input(1.0, 1.0);
-        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 2.0);
+        assert_eq!(neuron.next_spike(0.0).unwrap(), 2.0);
         neuron.add_input(-1.0, 1.0);
-        assert_eq!(neuron.next_spike(0.0, 100.0), None);
+        assert_eq!(neuron.next_spike(0.0), None);
         neuron.add_input(1.0, 1.0);
-        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 2.0);
+        assert_eq!(neuron.next_spike(0.0).unwrap(), 2.0);
 
         // Test next_spike after refractory period
         let mut neuron = Neuron::new();
         neuron.add_firing_time(2.0).unwrap();
         neuron.add_input(10.0, 1.0);
-        assert_eq!(neuron.next_spike(0.0, 100.0).unwrap(), 3.0);
+        assert_eq!(neuron.next_spike(0.0).unwrap(), 3.0);
     }
 
     #[test]
@@ -345,15 +340,15 @@ mod tests {
 
         neuron.add_input(1.0, 0.0);
 
-        let time = neuron.next_spike(0.0, 100.0).unwrap();
+        let time = neuron.next_spike(0.0).unwrap();
         neuron.add_firing_time(time).unwrap();
         assert!(time.abs() < 1e-10);
 
-        let time = neuron.next_spike(0.0, 100.0).unwrap();
+        let time = neuron.next_spike(0.0).unwrap();
         neuron.add_firing_time(time).unwrap();
         assert!((time - 1.0).abs() < 1e-10);
 
-        let time = neuron.next_spike(0.0, 100.0).unwrap();
+        let time = neuron.next_spike(0.0).unwrap();
         neuron.add_firing_time(time).unwrap();
         assert!((time - 2.0).abs() < 1e-10);
     }
@@ -365,7 +360,7 @@ mod tests {
         neuron.add_input(0.0, 1.0);
 
         // Test when potential never reaches threshold
-        let next_firing = neuron.next_spike(0.0, 100.0);
+        let next_firing = neuron.next_spike(0.0);
         assert_eq!(next_firing, None);
     }
 }
