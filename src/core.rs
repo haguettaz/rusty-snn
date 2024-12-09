@@ -16,12 +16,13 @@
 //! // Init an empty network and add a few neurons and connections
 //! let mut network = Network::new();
 //! network.add_connection(0, 1, 1.0, 0.25).unwrap();
-//! network.add_connection(2, 3, -0.75, 1.0).unwrap();
-//! network.add_connection(1, 2, 0.25, 2.0).unwrap();
 //! network.add_connection(0, 1, -0.5, 0.5).unwrap();
+//! network.add_connection(2, 3, -0.75, 1.0).unwrap();
+//! network.add_connection(3, 3, 0.25, 0.125).unwrap();
+//! network.add_connection(1, 2, 0.25, 2.0).unwrap();
 //! 
 //! assert_eq!(network.num_neurons(), 4);
-//! assert_eq!(network.num_connections(), 4);
+//! assert_eq!(network.num_connections(), 5);
 //! 
 //! ```
 pub mod spike_train;

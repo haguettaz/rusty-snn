@@ -59,8 +59,6 @@ impl Connection {
     /// Create a new connection with the specified parameters.
     /// Returns an error if the delay is negative.
     pub fn build(
-        // source_id: usize,
-        // target_id: usize,
         weight: f64,
         delay: f64,
     ) -> Result<Self, CoreError> {
@@ -69,22 +67,10 @@ impl Connection {
         }
 
         Ok(Connection {
-            // source_id,
-            // target_id,
             weight,
             delay,
         })
     }
-
-    // /// Returns the ID of the source neuron.
-    // pub fn source_id(&self) -> usize {
-    //     self.source_id
-    // }
-
-    // /// Returns the ID of the target neuron.
-    // pub fn target_id(&self) -> usize {
-    //     self.target_id
-    // }
 
     /// Returns the weight of the connection.
     pub fn weight(&self) -> f64 {
@@ -106,8 +92,6 @@ mod tests {
     #[test]
     fn test_connection_build() {
         let connection = Connection::build(0.5, 1.0).unwrap();
-        // assert_eq!(connection.source_id, 0);
-        // assert_eq!(connection.target_id, 1);
         assert_eq!(connection.weight, 0.5);
         assert_eq!(connection.delay, 1.0);
     }

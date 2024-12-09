@@ -60,7 +60,9 @@ impl Serialize for Network {
         let connections: HashMap<String, &Vec<Connection>> = self
             .connections
             .iter()
-            .map(|(&(id1, id2), connections)| (format!("({}, {})", id1, id2), connections))
+            .map(|(&(source_id, target_id), connections)| {
+                (format!("{} -> {}", source_id, target_id), connections)
+            })
             .collect();
         s.serialize_field("connections", &connections)?;
 
@@ -86,11 +88,11 @@ impl<'de> Deserialize<'de> for Network {
             .connections
             .into_iter()
             .map(|(key, connections)| {
-                let key = key.trim_matches(|c| c == '(' || c == ')' || c == ' ');
+                let key = key.trim_matches(|c| c == ' ').replace("->", ",");
                 let mut parts = key.split(',');
-                let id1 = parts.next().unwrap().trim().parse().unwrap();
-                let id2 = parts.next().unwrap().trim().parse().unwrap();
-                ((id1, id2), connections)
+                let source_id = parts.next().unwrap().trim().parse().unwrap();
+                let target_id = parts.next().unwrap().trim().parse().unwrap();
+                ((source_id, target_id), connections)
             })
             .collect();
 
@@ -150,7 +152,10 @@ impl Network {
         let delay_dist = Uniform::new_inclusive(min_delay, max_delay);
 
         if !matches!(topology, Topology::Random) && num_connections % num_neurons != 0 {
-            return Err(CoreError::IncompatibleTopology {num_neurons, num_connections});
+            return Err(CoreError::IncompatibleTopology {
+                num_neurons,
+                num_connections,
+            });
         }
 
         let (source_ids, target_ids) = match topology {
@@ -268,11 +273,14 @@ impl Network {
             .or_insert(vec![])
             .binary_search_by(|connection| connection.delay().partial_cmp(&delay).unwrap())
         {
-            Ok(pos) | Err(pos) => self
+            Ok(pos) | Err(pos) => {
+                let connection = Connection::build(weight, delay)?;
+                self
                 .connections
                 .get_mut(&(source_id, target_id))
                 .unwrap()
-                .insert(pos, Connection::build(weight, delay)?),
+                .insert(pos, connection);
+            }
         };
 
         Ok(())
@@ -351,12 +359,12 @@ impl Network {
             .unwrap_or(0)
     }
 
-    /// Returns the number of inputs to the neuron with the specified id.
+    /// Returns the number of connections originating from the neuron with the specified id.
     pub fn num_connections_from(&self, id: usize) -> usize {
         self.num_connections_filtered(|&(source_id, _)| source_id == id)
     }
 
-    /// Returns the number of outputs to the neuron with the specified id.
+    /// Returns the number of connections targeting the neuron with the specified id.
     pub fn num_connections_to(&self, id: usize) -> usize {
         self.num_connections_filtered(|&(_, target_id)| target_id == id)
     }
@@ -409,19 +417,49 @@ impl Network {
             }
 
             // Accept as many spikes as possible at the current time
-            let mut next_spikes = vec![];
-            for (id_target, t_target) in candidate_next_spikes.iter() {
-                if candidate_next_spikes.iter().all(|(id_source, t_source)| {
-                    match self.connections.get(&(*id_source, *id_target)) {
-                        Some(connections) => {
-                            *t_target <= *t_source + connections.first().unwrap().delay()
-                        }
-                        None => true,
-                    }
-                }) {
-                    next_spikes.push((*id_target, *t_target));
-                }
-            }
+            let next_spikes: Vec<(usize, f64)> = match self.neurons.len() > MIN_PARALLEL_NEURONS {
+                true => candidate_next_spikes
+                    .par_iter()
+                    .filter(|(id_target, t_target)| {
+                        candidate_next_spikes.iter().all(|(id_source, t_source)| {
+                            match self.connections.get(&(*id_source, *id_target)) {
+                                Some(connections) => {
+                                    *t_target <= *t_source + connections.first().unwrap().delay()
+                                }
+                                None => true,
+                            }
+                        })
+                    })
+                    .map(|(id_target, t_target)| (*id_target, *t_target))
+                    .collect(),
+                false => candidate_next_spikes
+                    .par_iter()
+                    .filter(|(id_target, t_target)| {
+                        candidate_next_spikes.iter().all(|(id_source, t_source)| {
+                            match self.connections.get(&(*id_source, *id_target)) {
+                                Some(connections) => {
+                                    *t_target <= *t_source + connections.first().unwrap().delay()
+                                }
+                                None => true,
+                            }
+                        })
+                    })
+                    .map(|(id_target, t_target)| (*id_target, *t_target))
+                    .collect(),
+            };
+            // let mut next_spikes = vec![];
+            // for (id_target, t_target) in candidate_next_spikes.iter() {
+            //     if candidate_next_spikes.iter().all(|(id_source, t_source)| {
+            //         match self.connections.get(&(*id_source, *id_target)) {
+            //             Some(connections) => {
+            //                 *t_target <= *t_source + connections.first().unwrap().delay()
+            //             }
+            //             None => true,
+            //         }
+            //     }) {
+            //         next_spikes.push((*id_target, *t_target));
+            //     }
+            // }
 
             // Get the greatest among all accepted spikes
             time = next_spikes
@@ -484,9 +522,13 @@ mod tests {
 
         network.add_connection(0, 1, 1.0, 1.0).unwrap();
         network.add_connection(2, 3, -1.0, 1.0).unwrap();
-        network.add_connection(0, 3, 1.0, 1.0).unwrap();
+        network.add_connection(0, 3, 1.0, 0.0).unwrap();
         network.add_connection(2, 3, 1.0, 0.25).unwrap();
         network.add_connection(2, 3, 1.0, 5.0).unwrap();
+        assert_eq!(
+            network.add_connection(2, 3, 1.0, -1.0),
+            Err(CoreError::InvalidDelay)
+        );
 
         assert_eq!(network.num_neurons(), 4);
         assert_eq!(network.num_connections(), 5);

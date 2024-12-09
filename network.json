@@ -1,15 +1,5 @@
 {
   "neurons": {
-    "0": {
-      "threshold": 1.0,
-      "firing_times": [],
-      "inputs": []
-    },
-    "1": {
-      "threshold": 1.0,
-      "firing_times": [],
-      "inputs": []
-    },
     "3": {
       "threshold": 1.0,
       "firing_times": [],
@@ -19,22 +9,32 @@
       "threshold": 1.0,
       "firing_times": [],
       "inputs": []
+    },
+    "1": {
+      "threshold": 1.0,
+      "firing_times": [],
+      "inputs": []
+    },
+    "0": {
+      "threshold": 1.0,
+      "firing_times": [],
+      "inputs": []
     }
   },
   "connections": {
-    "(0, 1)": [
+    "0 -> 3": [
       {
         "weight": 1.0,
         "delay": 1.0
       }
     ],
-    "(1, 2)": [
+    "1 -> 2": [
       {
         "weight": -1.0,
         "delay": 2.0
       }
     ],
-    "(0, 3)": [
+    "0 -> 1": [
       {
         "weight": 1.0,
         "delay": 1.0
