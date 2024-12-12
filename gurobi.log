@@ -1,0 +1,370 @@
+
+Gurobi 11.0.3 (mac64[arm]) logging started Tue Dec 10 11:27:15 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-09-25
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 3 rows, 2 columns and 6 nonzeros
+Model fingerprint: 0xdfb036b6
+Variable types: 1 continuous, 1 integer (0 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 4e+00]
+  Objective range  [1e+00, 8e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+01, 3e+01]
+Presolve time: 0.00s
+Presolved: 3 rows, 2 columns, 6 nonzeros
+Variable types: 0 continuous, 2 integer (0 binary)
+Found heuristic solution: objective 59.0000000
+
+Root relaxation: cutoff, 0 iterations, 0.00 seconds (0.00 work units)
+
+Explored 1 nodes (0 simplex iterations) in 0.00 seconds (0.00 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 1: 59 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 5.900000000000e+01, best bound 5.900000000000e+01, gap 0.0000%
+
+Gurobi 11.0.3 (mac64[arm]) logging started Tue Dec 10 11:33:49 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 3 rows, 2 columns and 6 nonzeros
+Model fingerprint: 0xdfb036b6
+Variable types: 1 continuous, 1 integer (0 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 4e+00]
+  Objective range  [1e+00, 8e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+01, 3e+01]
+Presolve time: 0.00s
+Presolved: 3 rows, 2 columns, 6 nonzeros
+Variable types: 0 continuous, 2 integer (0 binary)
+Found heuristic solution: objective 59.0000000
+
+Root relaxation: cutoff, 0 iterations, 0.00 seconds (0.00 work units)
+
+Explored 1 nodes (0 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 1: 59 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 5.900000000000e+01, best bound 5.900000000000e+01, gap 0.0000%
+
+Gurobi 11.0.3 (mac64[arm]) logging started Tue Dec 10 13:09:34 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 1 rows, 10 columns and 2 nonzeros
+Model fingerprint: 0x9942f661
+Model has 10 quadratic objective terms
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 1e+00]
+Presolve removed 0 rows and 8 columns
+Presolve time: 0.00s
+Presolved: 1 rows, 2 columns, 2 nonzeros
+Presolved model has 2 quadratic objective terms
+Ordering time: 0.00s
+
+Barrier statistics:
+ Free vars  : 2
+ AA' NZ     : 0.000e+00
+ Factor NZ  : 1.000e+00
+ Factor Ops : 1.000e+00 (less than 1 second per iteration)
+ Threads    : 1
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   1.99999200e-12 -1.99999200e-12  2.00e+00 1.00e-06  9.98e+05     0s
+   1   5.70745114e+04 -5.67366519e+04  0.00e+00 9.95e-13  1.14e+05     0s
+   2   8.40208097e+03 -8.27245010e+03  0.00e+00 0.00e+00  1.67e+04     0s
+   3   1.24641976e+03 -1.19649142e+03  0.00e+00 0.00e+00  2.44e+03     0s
+   4   1.88629242e+02 -1.69206099e+02  0.00e+00 0.00e+00  3.58e+02     0s
+   5   3.00517034e+01 -2.22990647e+01  0.00e+00 0.00e+00  5.24e+01     0s
+   6   5.44774580e+00 -2.14691385e+00  0.00e+00 0.00e+00  7.59e+00     0s
+   7   1.33825215e+00  2.97750385e-01  0.00e+00 0.00e+00  1.04e+00     0s
+   8   5.93442270e-01  4.96000037e-01  0.00e+00 0.00e+00  9.74e-02     0s
+   9   5.01018713e-01  4.99999482e-01  0.00e+00 0.00e+00  1.02e-03     0s
+  10   5.00001018e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-06     0s
+  11   5.00000001e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-09     0s
+
+Barrier solved model in 11 iterations and 0.00 seconds (0.00 work units)
+Optimal objective 5.00000001e-01
+
+
+Gurobi 11.0.3 (mac64[arm]) logging started Tue Dec 10 13:10:13 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 1 rows, 10 columns and 2 nonzeros
+Model fingerprint: 0x62a42c24
+Model has 10 quadratic objective terms
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [0e+00, 0e+00]
+Presolve removed 0 rows and 8 columns
+Presolve time: 0.00s
+Presolved: 1 rows, 2 columns, 2 nonzeros
+Presolved model has 2 quadratic objective terms
+Ordering time: 0.00s
+
+Barrier statistics:
+ Free vars  : 2
+ AA' NZ     : 0.000e+00
+ Factor NZ  : 1.000e+00
+ Factor Ops : 1.000e+00 (less than 1 second per iteration)
+ Threads    : 1
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   0.00000000e+00  0.00000000e+00  0.00e+00 0.00e+00  1.00e+06     0s
+   1   5.69927093e+04 -5.69927093e+04  0.00e+00 0.00e+00  1.14e+05     0s
+   2   8.35006855e+03 -8.35006855e+03  0.00e+00 0.00e+00  1.67e+04     0s
+   3   1.22336926e+03 -1.22336926e+03  0.00e+00 0.00e+00  2.45e+03     0s
+   4   1.79235935e+02 -1.79235935e+02  0.00e+00 0.00e+00  3.58e+02     0s
+   5   2.62598722e+01 -2.62598722e+01  0.00e+00 0.00e+00  5.25e+01     0s
+   6   3.84733614e+00 -3.84733614e+00  0.00e+00 0.00e+00  7.69e+00     0s
+   7   5.63673547e-01 -5.63673547e-01  0.00e+00 0.00e+00  1.13e+00     0s
+   8   8.25838598e-02 -8.25838598e-02  0.00e+00 0.00e+00  1.65e-01     0s
+   9   1.20993684e-02 -1.20993684e-02  0.00e+00 0.00e+00  2.42e-02     0s
+  10   1.77267950e-03 -1.77267950e-03  0.00e+00 0.00e+00  3.55e-03     0s
+  11   2.59715425e-04 -2.59715425e-04  0.00e+00 0.00e+00  5.19e-04     0s
+  12   3.80509293e-05 -3.80509293e-05  0.00e+00 0.00e+00  7.61e-05     0s
+  13   5.57484491e-06 -5.57484491e-06  0.00e+00 0.00e+00  1.11e-05     0s
+  14   8.16771006e-07 -8.16771006e-07  0.00e+00 0.00e+00  1.63e-06     0s
+  15   1.19665190e-07 -1.19665190e-07  0.00e+00 0.00e+00  2.39e-07     0s
+  16   1.75321573e-08 -1.75321573e-08  0.00e+00 0.00e+00  3.51e-08     0s
+  17   2.56863787e-09 -2.56863787e-09  0.00e+00 0.00e+00  5.14e-09     0s
+
+Barrier solved model in 17 iterations and 0.00 seconds (0.00 work units)
+Optimal objective 2.56863787e-09
+
+
+Gurobi 11.0.3 (mac64[arm]) logging started Tue Dec 10 13:11:06 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 1 rows, 10 columns and 2 nonzeros
+Model fingerprint: 0x9942f661
+Model has 10 quadratic objective terms
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 1e+00]
+Presolve removed 0 rows and 8 columns
+Presolve time: 0.00s
+Presolved: 1 rows, 2 columns, 2 nonzeros
+Presolved model has 2 quadratic objective terms
+Ordering time: 0.00s
+
+Barrier statistics:
+ Free vars  : 2
+ AA' NZ     : 0.000e+00
+ Factor NZ  : 1.000e+00
+ Factor Ops : 1.000e+00 (less than 1 second per iteration)
+ Threads    : 1
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   1.99999200e-12 -1.99999200e-12  2.00e+00 1.00e-06  9.98e+05     0s
+   1   5.70745114e+04 -5.67366519e+04  0.00e+00 9.95e-13  1.14e+05     0s
+   2   8.40208097e+03 -8.27245010e+03  0.00e+00 0.00e+00  1.67e+04     0s
+   3   1.24641976e+03 -1.19649142e+03  0.00e+00 0.00e+00  2.44e+03     0s
+   4   1.88629242e+02 -1.69206099e+02  0.00e+00 0.00e+00  3.58e+02     0s
+   5   3.00517034e+01 -2.22990647e+01  0.00e+00 0.00e+00  5.24e+01     0s
+   6   5.44774580e+00 -2.14691385e+00  0.00e+00 0.00e+00  7.59e+00     0s
+   7   1.33825215e+00  2.97750385e-01  0.00e+00 0.00e+00  1.04e+00     0s
+   8   5.93442270e-01  4.96000037e-01  0.00e+00 0.00e+00  9.74e-02     0s
+   9   5.01018713e-01  4.99999482e-01  0.00e+00 0.00e+00  1.02e-03     0s
+  10   5.00001018e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-06     0s
+  11   5.00000001e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-09     0s
+
+Barrier solved model in 11 iterations and 0.00 seconds (0.00 work units)
+Optimal objective 5.00000001e-01
+
+
+Gurobi 11.0.3 (mac64[arm]) logging started Tue Dec 10 13:12:29 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 1 rows, 1000 columns and 2 nonzeros
+Model fingerprint: 0x92a8e00f
+Model has 1000 quadratic objective terms
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 1e+00]
+Presolve removed 0 rows and 998 columns
+Presolve time: 0.00s
+Presolved: 1 rows, 2 columns, 2 nonzeros
+Presolved model has 2 quadratic objective terms
+Ordering time: 0.00s
+
+Barrier statistics:
+ Free vars  : 2
+ AA' NZ     : 0.000e+00
+ Factor NZ  : 1.000e+00
+ Factor Ops : 1.000e+00 (less than 1 second per iteration)
+ Threads    : 1
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   1.99999200e-12 -1.99999200e-12  2.00e+00 1.00e-06  9.98e+05     0s
+   1   5.70745114e+04 -5.67366519e+04  0.00e+00 9.95e-13  1.14e+05     0s
+   2   8.40208097e+03 -8.27245010e+03  0.00e+00 0.00e+00  1.67e+04     0s
+   3   1.24641976e+03 -1.19649142e+03  0.00e+00 0.00e+00  2.44e+03     0s
+   4   1.88629242e+02 -1.69206099e+02  0.00e+00 0.00e+00  3.58e+02     0s
+   5   3.00517034e+01 -2.22990647e+01  0.00e+00 0.00e+00  5.24e+01     0s
+   6   5.44774580e+00 -2.14691385e+00  0.00e+00 0.00e+00  7.59e+00     0s
+   7   1.33825215e+00  2.97750385e-01  0.00e+00 0.00e+00  1.04e+00     0s
+   8   5.93442270e-01  4.96000037e-01  0.00e+00 0.00e+00  9.74e-02     0s
+   9   5.01018713e-01  4.99999482e-01  0.00e+00 0.00e+00  1.02e-03     0s
+  10   5.00001018e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-06     0s
+  11   5.00000001e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-09     0s
+
+Barrier solved model in 11 iterations and 0.00 seconds (0.00 work units)
+Optimal objective 5.00000001e-01
+
+
+Gurobi 11.0.3 (mac64[arm]) logging started Thu Dec 12 11:00:38 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 1 rows, 1000 columns and 2 nonzeros
+Model fingerprint: 0x92a8e00f
+Model has 1000 quadratic objective terms
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 1e+00]
+Presolve removed 0 rows and 998 columns
+Presolve time: 0.00s
+Presolved: 1 rows, 2 columns, 2 nonzeros
+Presolved model has 2 quadratic objective terms
+Ordering time: 0.00s
+
+Barrier statistics:
+ Free vars  : 2
+ AA' NZ     : 0.000e+00
+ Factor NZ  : 1.000e+00
+ Factor Ops : 1.000e+00 (less than 1 second per iteration)
+ Threads    : 1
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   1.99999200e-12 -1.99999200e-12  2.00e+00 1.00e-06  9.98e+05     0s
+   1   5.70745114e+04 -5.67366519e+04  0.00e+00 9.95e-13  1.14e+05     0s
+   2   8.40208097e+03 -8.27245010e+03  0.00e+00 0.00e+00  1.67e+04     0s
+   3   1.24641976e+03 -1.19649142e+03  0.00e+00 0.00e+00  2.44e+03     0s
+   4   1.88629242e+02 -1.69206099e+02  0.00e+00 0.00e+00  3.58e+02     0s
+   5   3.00517034e+01 -2.22990647e+01  0.00e+00 0.00e+00  5.24e+01     0s
+   6   5.44774580e+00 -2.14691385e+00  0.00e+00 0.00e+00  7.59e+00     0s
+   7   1.33825215e+00  2.97750385e-01  0.00e+00 0.00e+00  1.04e+00     0s
+   8   5.93442270e-01  4.96000037e-01  0.00e+00 0.00e+00  9.74e-02     0s
+   9   5.01018713e-01  4.99999482e-01  0.00e+00 0.00e+00  1.02e-03     0s
+  10   5.00001018e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-06     0s
+  11   5.00000001e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-09     0s
+
+Barrier solved model in 11 iterations and 0.00 seconds (0.00 work units)
+Optimal objective 5.00000001e-01
+
+
+Gurobi 11.0.3 (mac64[arm]) logging started Thu Dec 12 11:22:35 2024
+
+Set parameter Username
+Academic license - for non-commercial use only - expires 2025-12-10
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (mac64[arm] - Darwin 24.1.0 24B91)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 1 rows, 1000 columns and 2 nonzeros
+Model fingerprint: 0x92a8e00f
+Model has 1000 quadratic objective terms
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 1e+00]
+Presolve removed 0 rows and 998 columns
+Presolve time: 0.00s
+Presolved: 1 rows, 2 columns, 2 nonzeros
+Presolved model has 2 quadratic objective terms
+Ordering time: 0.00s
+
+Barrier statistics:
+ Free vars  : 2
+ AA' NZ     : 0.000e+00
+ Factor NZ  : 1.000e+00
+ Factor Ops : 1.000e+00 (less than 1 second per iteration)
+ Threads    : 1
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   1.99999200e-12 -1.99999200e-12  2.00e+00 1.00e-06  9.98e+05     0s
+   1   5.70745114e+04 -5.67366519e+04  0.00e+00 9.95e-13  1.14e+05     0s
+   2   8.40208097e+03 -8.27245010e+03  0.00e+00 0.00e+00  1.67e+04     0s
+   3   1.24641976e+03 -1.19649142e+03  0.00e+00 0.00e+00  2.44e+03     0s
+   4   1.88629242e+02 -1.69206099e+02  0.00e+00 0.00e+00  3.58e+02     0s
+   5   3.00517034e+01 -2.22990647e+01  0.00e+00 0.00e+00  5.24e+01     0s
+   6   5.44774580e+00 -2.14691385e+00  0.00e+00 0.00e+00  7.59e+00     0s
+   7   1.33825215e+00  2.97750385e-01  0.00e+00 0.00e+00  1.04e+00     0s
+   8   5.93442270e-01  4.96000037e-01  0.00e+00 0.00e+00  9.74e-02     0s
+   9   5.01018713e-01  4.99999482e-01  0.00e+00 0.00e+00  1.02e-03     0s
+  10   5.00001018e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-06     0s
+  11   5.00000001e-01  5.00000000e-01  0.00e+00 0.00e+00  1.02e-09     0s
+
+Barrier solved model in 11 iterations and 0.00 seconds (0.00 work units)
+Optimal objective 5.00000001e-01
+

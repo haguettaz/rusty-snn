@@ -27,7 +27,7 @@
 
 
 use crate::core::REFRACTORY_PERIOD;
-use crate::simulator::SHIFT_FACTOR;
+use crate::programs::SHIFT_FACTOR;
 
 use itertools::Itertools;
 use std::error::Error;

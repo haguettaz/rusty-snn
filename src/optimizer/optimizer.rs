@@ -59,7 +59,7 @@ pub fn solve_qp() {
 
 /// Determine the solution of the inequality constrained min-norm problem using the dual forward filtering backward deciding algorithm
 /// See Li and Loeliger, 2025
-pub fn dfdbd(x: &mut DVector<f64>, c: &DMatrix<f64>, y: &DVector<f64>, v: &mut DMatrix<f64>) {
+pub fn dffbd(x: &mut DVector<f64>, c: &DMatrix<f64>, y: &DVector<f64>, v: &mut DMatrix<f64>) {
     let mut l = DVector::zeros(c.ncols());
     for (cn, yn) in c.row_iter().zip(y.iter()) {
         // forward filtering

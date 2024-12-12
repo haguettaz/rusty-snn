@@ -36,4 +36,4 @@ pub const REFRACTORY_PERIOD: f64 = 1.0;
 /// The nominal threshold for a neuron to fire.
 pub const FIRING_THRESHOLD: f64 = 1.0;
 /// Minimum number of neurons to consider parallel processing.
-pub const MIN_PARALLEL_NEURONS: usize = 100;
+pub const MIN_PARALLEL_NEURONS: usize = 10000;
