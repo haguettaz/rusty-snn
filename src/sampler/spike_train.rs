@@ -108,13 +108,25 @@ impl PeriodicSpikeTrainSampler {
     ///
     /// # Returns
     /// A vector of vectors, where each inner vector contains the firing times for a channel.
-    pub fn sample<R: Rng>(&self, num_channels: usize, rng: &mut R) -> Vec<SpikeTrain> {
+    pub fn rand<R: Rng>(&self, num_channels: usize, period: f64, firing_rate: f64, rng: &mut R) -> Result<Vec<SpikeTrain>, SNNError> {
         let mut spike_trains: Vec<SpikeTrain> = Vec::with_capacity(num_channels);
 
-        let uniform_ref = Uniform::new(0.0, self.period);
+        if period <= 0.0 {
+            return Err(SNNError::InvalidPeriod);
+        }
+
+        if firing_rate < 0.0 {
+            return Err(SNNError::InvalidFiringRate);
+        }
+        let num_spikes_probs =
+            WeightedIndex::new(Self::compute_num_spikes_probs(period, firing_rate)).map_err(
+                |e| SNNError::InvalidNumSpikeWeights(e.to_string()),
+            )?;
+
+        let uniform_ref = Uniform::new(0.0, period);
 
         for id in 0..num_channels {
-            let num_spikes = self.num_spikes_probs.sample(rng);
+            let num_spikes = num_spikes_probs.sample(rng);
             let mut new_firing_times = Vec::with_capacity(num_spikes);
 
             if num_spikes == 0 {
@@ -130,7 +142,7 @@ impl PeriodicSpikeTrainSampler {
                 continue;
             }
 
-            let uniform = Uniform::new(0.0, self.period - num_spikes as f64);
+            let uniform = Uniform::new(0.0, period - num_spikes as f64);
 
             let mut tmp_times: Vec<f64> =
                 (0..num_spikes - 1).map(|_| uniform.sample(rng)).collect();
@@ -146,7 +158,7 @@ impl PeriodicSpikeTrainSampler {
                 tmp_times
                     .iter()
                     .enumerate()
-                    .map(|(n, t)| (n as f64 + 1. + t + ref_spike) % self.period),
+                    .map(|(n, t)| (n as f64 + 1. + t + ref_spike) % period),
             );
 
             // Sort the new firing times
@@ -158,7 +170,7 @@ impl PeriodicSpikeTrainSampler {
             spike_trains.push(SpikeTrain::build(id, &new_firing_times).unwrap());
         }
 
-        spike_trains
+        Ok(spike_trains)
     }
 
     /// Computes the probabilities for the number of spikes based on the given period and firing rate.

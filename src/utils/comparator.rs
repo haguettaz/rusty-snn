@@ -54,13 +54,6 @@ impl<'a> Comparator<'a> {
         }
     }
 
-    /// Calculate the minimum distance between two points on a circular modulo space.
-    fn mod_dist(x: f64, y: f64, modulo: f64) -> f64 {
-        let diff1 = (x - y).rem_euclid(modulo);
-        let diff2 = (y - x).rem_euclid(modulo);
-        diff1.min(diff2)
-    }
-
     /// Calculate the precision of a spike train with respect to the reference.
     /// Returns an error if the number of channels in the spike trains to compare don't match.
     pub fn precision(&self, trains: &Vec<Vec<f64>>) -> Result<f64, ComparatorError> {
