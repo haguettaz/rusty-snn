@@ -54,16 +54,23 @@
 //! let mut rng = StdRng::seed_from_u64(42);
 //! let mut network = Network::rand(200, 200 * 500, (-0.2, 0.2), (0.1, 10.0), Topology::Random, &mut rng).unwrap();
 //! let spike_trains = SpikeTrain::rand(200, 50.0, 0.2, &mut rng).unwrap();
-//! 
+//!
 //! // Optimize the network, i.e., find the optimal weights to reproduce the spike trains
 //! // network.memorize_periodic_spike_trains(&spike_trains, 100.0, (-0.2, 0.2), 0.0, 0.2, 0.2).unwrap();
 //! ```
 
-// pub mod connection;
+pub mod connection;
 pub mod error;
 pub mod network;
 pub mod neuron;
-pub mod simulator;
+pub mod optim;
+// pub mod simulator;
 pub mod spike_train;
 pub mod utils;
-pub mod optim;
+
+/// The tolerance for a potential value to be considered negligible (relative to the number of inputs).
+pub const POTENTIAL_TOLERANCE: f64 = 1e-9;
+/// The minimum time between spikes. Can be seen as the default unit of time of a neuron.
+pub const REFRACTORY_PERIOD: f64 = 1.0;
+/// The nominal threshold for a neuron to fire.
+pub const FIRING_THRESHOLD: f64 = 1.0;

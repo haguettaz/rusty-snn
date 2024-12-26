@@ -3,6 +3,12 @@ use std::error::Error;
 
 use super::neuron::REFRACTORY_PERIOD;
 
+
+// SpikeTrainError: period, firing_rate, refractory period
+// NetworkError: num_neurons, num_connections, topology, weight, delay
+// SimulationError: ...
+// MemorizationError: GurobiAPI, infeasible 
+
 /// Error types for the spike train module.
 #[derive(Debug, PartialEq)]
 pub enum SNNError {
