@@ -1,11 +1,12 @@
 //! Module implementing the concept of a spike train.
 //! What if we redefine a spike train as a (sorted) Vec<Spike>?
 
-use itertools::Itertools;
+use log::info;
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use super::connection::Connection;
 use super::error::SNNError;
 
 /// Represents a spike train associated with a specific neuron.
@@ -34,9 +35,11 @@ impl Spike {
     }
 }
 
-/// Represents a spike train associated with a specific neuron.
+/// Represents an input spike to a neuron, i.e., a time and a weight.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct InSpike {
+    /// The ID of the input along which the spike is received.
+    input_id: usize,
     /// The weight of the synapse along which the spike is received.
     weight: f64,
     /// The time at which the spike is received.
@@ -45,8 +48,12 @@ pub struct InSpike {
 
 impl InSpike {
     /// Create a new input spike with the specified parameters.
-    pub fn new(weight: f64, time: f64) -> Self {
-        InSpike { weight, time }
+    pub fn new(input_id: usize, weight: f64, time: f64) -> Self {
+        InSpike {
+            input_id,
+            weight,
+            time,
+        }
     }
 
     /// Returns the weight of the synapse along which the spike is received.
@@ -58,74 +65,102 @@ impl InSpike {
     pub fn time(&self) -> f64 {
         self.time
     }
-}
 
-/// Represents a spike train associated with a specific neuron.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct InputSpike {
-    /// The ID of the input along which the spike is received.
-    input_id: usize,
-    /// The time at which the spike is received.
-    time: f64,
-}
-
-impl InputSpike {
-    /// Create a new input spike with the specified parameters.
-    pub fn new(input_id: usize, time: f64) -> Self {
-        InputSpike { input_id, time }
-    }
-
-    /// Returns the ID of the input along which the spike is received.
+    /// Returns the ID of the input.
     pub fn input_id(&self) -> usize {
         self.input_id
     }
 
-    /// Returns the time at which the spike is received.
-    pub fn time(&self) -> f64 {
-        self.time
+    /// Set the weight of the synapse along which the spike is received.
+    pub fn set_weight(&mut self, weight: f64) {
+        self.weight = weight;
+    }
+
+    // Eval the input spike kernel at the given time, without the weight
+    pub fn kernel(&self, time: f64) -> f64 {
+        if self.time < time {
+            let dtime = time - self.time;
+            dtime * (1_f64 - dtime).exp()
+        } else {
+            0_f64
+        }
+    }
+
+    // Evaluate the input spike kernel at the given time, without the weight and assuming periodicity
+    pub fn periodic_kernel(&self, time: f64, period: f64) -> f64 {
+        let dtime = time - self.time() + ((self.time() - time) / period).ceil() * period;
+        dtime * (1_f64 - dtime).exp()
+    }
+
+    // Evaluate the input spike kernel derivative at the given time, without the weight and assuming periodicity
+    pub fn periodic_kernel_derivative(&self, time: f64, period: f64) -> f64 {
+        let dtime = time - self.time() + ((self.time() - time) / period).ceil() * period;
+        (1_f64 - dtime) * (1_f64 - dtime).exp()
+    }
+
+    // Returns the input spike contribution to the neuron potential at the given time
+    pub fn signal(&self, time: f64) -> f64 {
+        self.kernel(time) * self.weight()
+    }
+
+    // Returns the input spike contribution to the neuron potential at the given time, assuming periodicity
+    pub fn periodic_signal(&self, time: f64, period: f64) -> f64 {
+        self.periodic_kernel(time, period) * self.weight()
+    }
+
+    // Returns the input spike contribution to the neuron potential derivative at the given time, assuming periodicity
+    pub fn periodic_signal_derivative(&self, time: f64, period: f64) -> f64 {
+        self.periodic_kernel_derivative(time, period) * self.weight()
     }
 }
 
-// /// Represents a spike train associated with a specific neuron.
-// #[derive(Debug, PartialEq, Clone)]
-// pub struct SpikeTrain {
-//     // id: usize,
-//     // firing_times: Vec<f64>,
-//     spikes: Vec<Spike>,
-// }
+pub fn extract_spike_train_into_inspikes(
+    spike_train: &[Spike],
+    inputs: &[Connection],
+) -> Vec<InSpike> {
+    let mut inspikes: Vec<InSpike> = inputs
+        .iter()
+        .enumerate()
+        .flat_map(|(id, input)| {
+            spike_train
+                .iter()
+                .filter(|spike| spike.source_id() == input.source_id())
+                .map(move |spike| InSpike::new(id, input.weight(), spike.time() + input.delay()))
+        })
+        .collect();
+    inspikes.sort_by(|a, b| a.time().partial_cmp(&b.time()).unwrap());
+    inspikes
+}
 
-// impl SpikeTrain {
-// /// Create a spike train with the specified parameters.
-// /// If necessary, the firing times are sorted.
-// /// The function returns an error for invalid firing times.
-// pub fn build(id: usize, firing_times: &[f64]) -> Result<Self, SNNError> {
-//     for t in firing_times {
-//         if !t.is_finite() {
-//             return Err(SNNError::InvalidFiringTimes);
-//         }
-//     }
+pub fn extract_spike_train_into_firing_times(spike_train: &Vec<Spike>, id: usize) -> Vec<f64> {
+    let mut firing_times: Vec<f64> = spike_train
+        .iter()
+        .filter(|spike| spike.source_id() == id)
+        .map(|spike| spike.time())
+        .collect();
+    firing_times.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+    firing_times
+}
 
-//     let mut firing_times = firing_times.to_vec();
-//     firing_times.sort_by(|t1, t2| {
-//         t1.partial_cmp(t2).unwrap_or_else(|| {
-//             panic!("Comparison failed: NaN values should have been caught earlier")
-//         })
-//     });
+pub fn spike_trains_to_firing_times(
+    spike_trains: &Vec<Spike>,
+    num_channels: usize,
+) -> Vec<Vec<f64>> {
+    let mut firing_times: Vec<Vec<f64>> = vec![vec![]; num_channels];
+    for l in 0..num_channels {
+        firing_times[l] = spike_trains
+            .iter()
+            .filter(|spike| spike.source_id() == l)
+            .map(|spike| spike.time())
+            .collect();
+        firing_times[l].sort_by(|a, b| a.partial_cmp(&b).unwrap());
+    }
+    firing_times
+}
 
-//     for ts in firing_times.windows(2) {
-//         if ts[1] - ts[0] <= REFRACTORY_PERIOD {
-//             return Err(SNNError::RefractoryPeriodViolation {
-//                 t1: ts[0],
-//                 t2: ts[1],
-//             });
-//         }
-//     }
-
-//     Ok(SpikeTrain {
-//         id,
-//         firing_times: firing_times,
-//     })
-// }
+pub fn firing_times_to_spike_trains(firing_times: &Vec<Vec<f64>>) -> Vec<Spike> {
+    todo!()
+}
 
 /// Samples spike trains with a given number of channels.
 ///
@@ -135,7 +170,7 @@ impl InputSpike {
 ///
 /// # Returns
 /// A vector of vectors, where each inner vector contains the firing times for a channel.
-pub fn rand<R: Rng>(
+pub fn rand_spike_train<R: Rng>(
     num_neurons: usize,
     period: f64,
     firing_rate: f64,
@@ -144,14 +179,25 @@ pub fn rand<R: Rng>(
     let mut spike_train: Vec<Spike> = vec![];
 
     if period <= 0.0 {
-        return Err(SNNError::InvalidPeriod);
+        return Err(SNNError::InvalidParameters(
+            "Invalid period value: must be positive".to_string(),
+        ));
     }
 
     if firing_rate < 0.0 {
-        return Err(SNNError::InvalidFiringRate);
+        return Err(SNNError::InvalidParameters(
+            "Invalid firing rate value: must be non-negative".to_string(),
+        ));
     }
-    let num_spikes_probs = WeightedIndex::new(compute_num_spikes_probs(period, firing_rate))
-        .map_err(|e| SNNError::InvalidNumSpikeWeights(e.to_string()))?;
+
+    let weights = compute_num_spikes_probs(period, firing_rate);
+    let num_spikes_mean = weights
+        .iter()
+        .enumerate()
+        .fold(0.0, |acc, (n, p)| acc + n as f64 * p);
+    let num_spikes_probs =
+        WeightedIndex::new(weights).map_err(|e| SNNError::InvalidNumSpikeWeights(e.to_string()))?;
+    info!("Mean number of spikes: {}", num_spikes_mean);
 
     let uniform_ref = Uniform::new(0.0, period);
 
@@ -256,21 +302,11 @@ fn compute_num_spikes_probs(period: f64, firing_rate: f64) -> Vec<f64> {
     weights.map(|w| w / sum).collect()
 }
 
-//     /// Returns the ID of the neuron associated with the spike train.
-//     pub fn id(&self) -> usize {
-//         self.id
-//     }
-
-//     /// Returns the firing times of the spike train.
-//     pub fn firing_times(&self) -> &[f64] {
-//         &self.firing_times[..]
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use itertools::Itertools;
 
     use super::*;
     use crate::REFRACTORY_PERIOD;
@@ -311,20 +347,32 @@ mod tests {
     // }
 
     #[test]
-    fn test_spike_train_rand() {
+    fn test_rand_spike_train() {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         // Test invalid parameters
-        assert_eq!(rand(10, -10.0, 1.0, &mut rng), Err(SNNError::InvalidPeriod));
-
-        assert_eq!(rand(10, 0.0, 1.0, &mut rng), Err(SNNError::InvalidPeriod));
-
         assert_eq!(
-            rand(10, 10.0, -1.0, &mut rng),
-            Err(SNNError::InvalidFiringRate)
+            rand_spike_train(10, -10.0, 1.0, &mut rng),
+            Err(SNNError::InvalidParameters(
+                "Invalid period value: must be positive".to_string()
+            ))
         );
 
-        let spike_trains = rand(50, 100.0, 1.0, &mut rng).unwrap();
+        assert_eq!(
+            rand_spike_train(10, 0.0, 1.0, &mut rng),
+            Err(SNNError::InvalidParameters(
+                "Invalid period value: must be positive".to_string()
+            ))
+        );
+
+        assert_eq!(
+            rand_spike_train(10, 10.0, -1.0, &mut rng),
+            Err(SNNError::InvalidParameters(
+                "Invalid firing rate value: must be non-negative".to_string()
+            ))
+        );
+
+        let spike_trains = rand_spike_train(50, 100.0, 1.0, &mut rng).unwrap();
 
         // Test for sorted firing times and refractory period
         for id in 0..50 {

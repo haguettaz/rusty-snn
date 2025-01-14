@@ -64,13 +64,16 @@ pub mod error;
 pub mod network;
 pub mod neuron;
 pub mod optim;
+pub mod signal;
 // pub mod simulator;
 pub mod spike_train;
 pub mod utils;
+pub mod jitter;
+pub mod comparator;
 
-/// The tolerance for a potential value to be considered negligible (relative to the number of inputs).
-pub const POTENTIAL_TOLERANCE: f64 = 1e-9;
 /// The minimum time between spikes. Can be seen as the default unit of time of a neuron.
 pub const REFRACTORY_PERIOD: f64 = 1.0;
 /// The nominal threshold for a neuron to fire.
 pub const FIRING_THRESHOLD: f64 = 1.0;
+/// The minimum contribution for a input spike before being considered negligible.
+const INSPIKE_MIN: f64 = 1e-15;

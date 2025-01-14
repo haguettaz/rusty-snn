@@ -1,30 +1,29 @@
 //! This module implements the `Network` structure and some core functionalities.
 
 use core::f64;
-use log::{debug, error, info, trace, warn};
+use log::{debug, info};
 use rand::distributions::{Distribution, Uniform};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rand_distr::Normal;
-use rayon::{prelude::*, vec};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
-use super::optim::*;
+use crate::{FIRING_THRESHOLD, REFRACTORY_PERIOD};
 
 use super::connection::Connection;
 use super::error::SNNError;
 use super::neuron::Neuron;
 use super::optim::Objective;
 // use super::simulator::SimulationProgram;
-use super::spike_train::{InSpike, Spike};
+use super::spike_train::*;
 
 /// Minimum number of neurons to use parallel processing.
-pub const MIN_PARALLEL_NEURONS: usize = 10000;
+pub const MIN_PARALLEL_NEURONS: usize = 100;
 
 #[derive(Debug, PartialEq)]
 pub enum Topology {
@@ -41,14 +40,27 @@ pub enum Topology {
     FinFout,
 }
 
+impl Topology {
+    /// Returns the topology from the string representation.
+    pub fn from_str(s: &str) -> Result<Self, SNNError> {
+        match s {
+            "rand" => Ok(Topology::Random),
+            "fin" => Ok(Topology::Fin),
+            "fout" => Ok(Topology::Fout),
+            "finfout" => Ok(Topology::FinFout),
+            _ => Err(SNNError::InvalidParameters("Invalid topology".to_string())),
+        }
+    }
+}
+
 /// Represents a spiking neural network.
 // #[derive(Debug, PartialEq, Clone)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Network {
     // A collection of neurons in the network, indexed by their IDs.
     neurons: Vec<Neuron>,
-    // A collection of connections between neurons, indexed by target (outer map) and source (inner map) neuron IDs.
-    connections: Vec<Vec<Vec<Connection>>>,
+    // A collection of connections between neurons, indexed by target IDs.
+    connections: Vec<Vec<Connection>>,
 }
 
 impl Network {
@@ -57,7 +69,7 @@ impl Network {
         let neurons = (0..num_neurons).map(|id| Neuron::new(id)).collect();
         Network {
             neurons: neurons,
-            connections: vec![vec![vec![]; num_neurons]; num_neurons],
+            connections: vec![vec![]; num_neurons],
         }
     }
 
@@ -102,7 +114,9 @@ impl Network {
 
         let (min_delay, max_delay) = lim_delays;
         if min_delay < 0.0 {
-            return Err(SNNError::InvalidDelay);
+            return Err(SNNError::InvalidParameters(
+                "Connection delay must be non-negative".to_string(),
+            ));
         }
         let delay_dist = Uniform::new_inclusive(min_delay, max_delay);
 
@@ -228,17 +242,15 @@ impl Network {
         }
 
         // insert the connection to preserve the delay order
-        let pos = match self.connections[target_id][source_id]
+        let pos = match self.connections[target_id]
             .binary_search_by(|connection| connection.delay().partial_cmp(&delay).unwrap())
         {
             Ok(pos) => pos,
             Err(pos) => pos,
         };
-        let id = self.num_connections();
-        self.connections[target_id][source_id].insert(
-            pos,
-            Connection::build(id, source_id, target_id, weight, delay)?,
-        );
+        // let id = self.num_connections();
+        self.connections[target_id]
+            .insert(pos, Connection::build(source_id, target_id, weight, delay)?);
         // self.connections[source_id][target_id]
         //     .push(Connection::build(source_id, target_id, weight, delay)?);
 
@@ -248,49 +260,74 @@ impl Network {
         Ok(())
     }
 
-    // /// Set neurons' firing times from the given spike trains.
-    // pub fn init_from_spike_trains(
-    //     &mut self,
-    //     spike_trains: Vec<SpikeTrain>,
-    // ) -> Result<(), SNNError> {
-    //     for spike_train in spike_trains.iter() {
-    //         let neuron = self.neuron_mut(spike_train.id())?;
-    //         neuron.set_firing_times(spike_train.firing_times())?;
-    //     }
+    /// Borrow the neurons in the network.
+    pub fn neurons(&self) -> &Vec<Neuron> {
+        &self.neurons
+    }
+
+    /// Borrow the connections in the network.
+    pub fn connections(&self) -> &Vec<Vec<Connection>> {
+        &self.connections
+    }
+
+    // /// Returns a slice of firing times of the neuron with the specified id.
+    // /// If the neuron does not exist, the function returns an error.
+    // fn firing_times(&self, id: usize) -> Result<&[f64], SNNError> {
+    //     let neuron = self.neuron(id)?;
+    //     Ok(neuron.firing_times())
+    // }
+
+    // /// Add a firing time to the neuron with the given id.
+    // fn add_firing_time(&mut self, id: usize, t: f64) -> Result<(), SNNError> {
+    //     self.neurons[id].add_firing_time(t)?;
     //     Ok(())
     // }
 
-    /// Returns a slice of firing times of the neuron with the specified id.
-    /// If the neuron does not exist, the function returns an error.
-    pub fn firing_times(&self, id: usize) -> Result<&[f64], SNNError> {
-        let neuron = self.neuron(id)?;
-        Ok(neuron.firing_times())
+    // /// Add a firing time to the neuron with the given id.
+    // fn extend_firing_times(&mut self, id: usize, firing_times: &[f64]) -> Result<(), SNNError> {
+    //     self.neurons[id].extend_firing_times(firing_times)?;
+    //     Ok(())
+    // }
+
+    // Clear the firing times of all neurons in the network.
+    pub fn clear_all_firing_times(&mut self) {
+        for neuron in self.neurons.iter_mut() {
+            neuron.clear_firing_times();
+        }
     }
 
-    /// Add a firing time to the neuron with the given id.
-    pub fn add_firing_time(&mut self, id: usize, t: f64) -> Result<(), SNNError> {
-        let neuron = self.neuron_mut(id)?;
-        neuron.add_firing_time(t)?;
+    // Clear the inspikes of all neurons in the network.
+    pub fn clear_all_inspikes_from_spike_train(&mut self) {
+        for neuron in self.neurons.iter_mut() {
+            neuron.clear_inspikes();
+        }
+    }
+
+    // Extend the firing times of all neurons in the network from the provided spike train.
+    // The spikes are assumed to be sorted by time.
+    pub fn extend_all_firing_times_from_spike_train(
+        &mut self,
+        spike_train: &[Spike],
+    ) -> Result<(), SNNError> {
+        for spike in spike_train.iter() {
+            self.neurons[spike.source_id()].add_firing_time(spike.time())?;
+        }
         Ok(())
     }
 
-    /// Add a firing time to the neuron with the given id.
-    pub fn extend_firing_times(&mut self, id: usize, firing_times: &[f64]) -> Result<(), SNNError> {
-        let neuron = self.neuron_mut(id)?;
-        neuron.extend_firing_times(firing_times)?;
-        Ok(())
+    pub fn extend_all_inspikes_from_spike_train(&mut self, spike_train: &[Spike]) {
+        for neuron in self.neurons.iter_mut() {
+            let mut new_inspikes =
+                extract_spike_train_into_inspikes(spike_train, &self.connections[neuron.id()]);
+            neuron.extend_inspikes(&mut new_inspikes);
+        }
     }
 
-    /// Add a firing time to the neuron with the given id.
-    fn fires(&mut self, id: usize, t: f64, noise: f64) -> Result<(), SNNError> {
-        let neuron = self.neuron_mut(id)?;
-        neuron.fires(t, noise)
-    }
-
-    /// Returns a slice of neurons in the network.
-    pub fn neurons(&self) -> &[Neuron] {
-        &self.neurons
-    }
+    // /// Add a firing time to the neuron with the given id.
+    // fn fires(&mut self, id: usize, t: f64, noise: f64) -> Result<(), SNNError> {
+    //     let neuron = self.neuron_mut(id)?;
+    //     neuron.fires(t, noise)
+    // }
 
     /// Returns a reference to the neuron with the specified id.
     /// Reminder: the neurons are sorted by id.
@@ -326,9 +363,8 @@ impl Network {
         self.connections
             .iter()
             .flat_map(|connection| {
-                connection
-                    .iter()
-                    .flat_map(|connection_to| connection_to.iter())
+                connection.iter()
+                // .flat_map(|connection_to| connection_to.iter())
             })
             .count()
         // self.neurons
@@ -338,10 +374,10 @@ impl Network {
 
     /// Returns the number of connections targeting the specified neuron.
     pub fn num_connections_to(&self, target_id: usize) -> usize {
-        self.connections[target_id]
-            .iter()
-            .flat_map(|connection_to| connection_to.iter())
-            .count()
+        self.connections[target_id].len()
+        // .iter()
+        // .flat_map(|connection_to| connection_to.iter())
+        // .count()
         // self.neuron(target_id)
         //     .map_or(0, |neuron| neuron.num_inputs())
     }
@@ -350,7 +386,11 @@ impl Network {
     pub fn num_connections_from(&self, source_id: usize) -> usize {
         self.connections
             .iter()
-            .flat_map(|connection_from| connection_from[source_id].iter())
+            .flat_map(|connection_to| {
+                connection_to
+                    .iter()
+                    .filter(|connection| connection.source_id() == source_id)
+            })
             .count()
         // self.neurons
         //     .iter()
@@ -359,7 +399,18 @@ impl Network {
 
     /// Returns the number of (parallel) connections between the source and target neurons.
     pub fn num_connections_between(&self, source_id: usize, target_id: usize) -> usize {
-        self.connections[source_id][target_id].len()
+        self.connections[target_id]
+            .iter()
+            .filter(|connection| connection.source_id() == source_id)
+            .count()
+        // self.connections[source_id][target_id].len()
+    }
+
+    pub fn firing_times(&self) -> Vec<Vec<f64>> {
+        self.neurons
+            .iter()
+            .map(|neuron| neuron.firing_times().to_vec())
+            .collect()
     }
 
     /// Returns the minimum delay in spike propagation between each pair of neurons in the network.
@@ -374,8 +425,10 @@ impl Network {
             for source_neuron in self.neurons.iter() {
                 if target_neuron.id() == source_neuron.id() {
                     min_delays[target_neuron.id()][source_neuron.id()] = 0.0;
-                } else if let Some(input) =
-                    self.connections[target_neuron.id()][source_neuron.id()].first()
+                } else if let Some(input) = self.connections[target_neuron.id()]
+                    .iter()
+                    .filter(|input| input.source_id() == source_neuron.id())
+                    .min_by(|a, b| a.delay().partial_cmp(&b.delay()).unwrap())
                 {
                     min_delays[target_neuron.id()][source_neuron.id()] = input.delay();
                 };
@@ -400,10 +453,10 @@ impl Network {
         min_delays
     }
 
-    /// Event-based simulation of the network.
+    /// Continuous-time event-based simulation of the network.
     pub fn run<R: Rng>(
         &mut self,
-        spike_trains: &Vec<Spike>,
+        // spike_train: &Vec<Spike>,
         start: f64,
         end: f64,
         threshold_noise: f64,
@@ -415,33 +468,6 @@ impl Network {
         let mut last_log_time = start;
         let log_interval = total_duration / 100.0;
 
-        // Setup neuron control
-        for neuron in self.neurons.iter_mut() {
-            let firing_times = spike_trains
-                .iter()
-                .filter(|spike| spike.source_id() == neuron.id())
-                .map(|spike| spike.time())
-                .collect::<Vec<f64>>();
-            neuron.extend_firing_times(&firing_times)?;
-            let mut new_inspikes = self.connections[neuron.id()]
-                .iter()
-                .flat_map(|inputs| {
-                    inputs.iter().flat_map(|input| {
-                        spike_trains
-                .iter()
-                .filter(|spike| spike.source_id() == input.source_id())
-                            .map(|spike| InSpike::new(input.weight(), spike.time() + input.delay()))
-                    })
-                })
-                .collect::<Vec<InSpike>>();
-            neuron.add_inspikes(&mut new_inspikes);
-            println!(
-                "Neuron {} has inspikes: {:?}",
-                neuron.id(),
-                neuron.inspikes()
-            );
-        }
-
         // Compute the minimum delays between each pair of neurons using Floyd-Warshall algorithm
         let min_delays = self.min_delays();
 
@@ -449,6 +475,7 @@ impl Network {
 
         while time < end {
             // Collect the candidate next spikes from all neurons, using parallel processing if the number of neurons is large
+            // let now = Instant::now();
             let candidate_next_spikes = match self.num_neurons() > MIN_PARALLEL_NEURONS {
                 true => self
                     .neurons()
@@ -461,6 +488,8 @@ impl Network {
                     .filter_map(|neuron| neuron.next_spike(time))
                     .collect::<Vec<Spike>>(),
             };
+            // let elapsed = now.elapsed();
+            // info!("Next spike duration: {:?}", elapsed);
 
             // If no neuron can fire, we're done
             if candidate_next_spikes.is_empty() {
@@ -469,6 +498,7 @@ impl Network {
             }
 
             // Accept as many spikes as possible at the current time
+            // let now =  Instant::now();
             let next_spikes: Vec<Spike> = match self.num_neurons() > MIN_PARALLEL_NEURONS {
                 true => candidate_next_spikes
                     .par_iter()
@@ -493,23 +523,39 @@ impl Network {
                     .cloned()
                     .collect(),
             };
+            // let elapsed = now.elapsed();
+            // info!("Acceptance duration: {:?}", elapsed);
 
             // Get the greatest among all accepted spikes
-            // Use structure Spike {source_id, time} instead ?
             time = next_spikes
                 .iter()
-                .fold(f64::NEG_INFINITY, |acc, spike| acc.max(spike.time()));
+                .map(|spike| spike.time())
+                .fold(f64::NEG_INFINITY, f64::max);
 
+            // let now = Instant::now();
             for spike in next_spikes.iter() {
                 self.neurons[spike.source_id()].fires(spike.time(), normal.sample(rng))?;
+
                 for neuron in self.neurons.iter_mut() {
-                    let mut new_inspikes = self.connections[neuron.id()][spike.source_id()]
+                    let mut new_inspikes = self.connections[neuron.id()]
                         .iter()
-                        .map(|input| InSpike::new(input.weight(), spike.time() + input.delay()))
+                        .enumerate()
+                        .filter(|(_, input)| input.source_id() == spike.source_id())
+                        .map(|(input_id, input)| {
+                            InSpike::new(input_id, input.weight(), spike.time() + input.delay())
+                        })
                         .collect::<Vec<InSpike>>();
-                    neuron.add_inspikes(&mut new_inspikes);
+                    neuron.extend_inspikes(&mut new_inspikes);
+
+                    // let mut new_inspikes = self.connections[neuron.id()][spike.source_id()]
+                    //     .iter()
+                    //     .map(|input| InSpike::new(input.weight(), spike.time() + input.delay()))
+                    //     .collect::<Vec<InSpike>>();
+                    // neuron.extend_inspikes(&mut new_inspikes);
                 }
             }
+            // let elapsed = now.elapsed();
+            // info!("Fires duration: {:?}", elapsed);
 
             // Check if it's time to log progress
             if time - last_log_time >= log_interval {
@@ -529,22 +575,52 @@ impl Network {
     /// Optimize the network to reproduce the given spike trains.
     /// The function returns the error if the optimization fails.
     /// Otherwise, returns the jitter's stability value (read more...)
-    pub fn memorize_periodic_spike_trains<R: Rng>(
+    pub fn memorize_periodic_spike_train(
         &mut self,
-        spike_trains: &Vec<Spike>, // to be adapted to &Vec<HashMap<usize, Vec<f64>>> for multiple memories
+        spike_train: &Vec<Spike>, // to be adapted to &Vec<HashMap<usize, Vec<f64>>> for multiple memories
         period: f64,
         lim_weights: (f64, f64),
         max_level: f64,
         min_slope: f64,
         half_width: f64,
         objective: Objective,
-        rng: &mut R,
-    ) -> Result<f64, SNNError> {
+    ) -> Result<(), SNNError> {
+        if max_level >= FIRING_THRESHOLD {
+            return Err(SNNError::InvalidParameters(
+                "maximum level must be smaller than the nominal firing threshold".to_string(),
+            ));
+        }
+        if min_slope < 0.0 {
+            return Err(SNNError::InvalidParameters(
+                "minimum slope must be positive".to_string(),
+            ));
+        }
+        if half_width <= 0.0 {
+            return Err(SNNError::InvalidParameters(
+                "half-width must be positive".to_string(),
+            ));
+        }
+        if half_width > REFRACTORY_PERIOD / 2.0 {
+            return Err(SNNError::InvalidParameters(
+                "half-width must be larger than half the refractory period".to_string(),
+            ));
+        }
+
         for neuron in self.neurons.iter_mut() {
             info!("Optimizing neuron {}", neuron.id());
-            neuron.memorize_periodic_spike_trains(
-                spike_trains,
-                &mut self.connections[neuron.id()],
+
+            // Extract the neuron's firing times from the provided spike train
+            let firing_times: Vec<f64> =
+                extract_spike_train_into_firing_times(spike_train, neuron.id());
+            debug!("Firing times: {:?}", firing_times);
+
+            // Extract the neuron's input spikes from the provided spike train
+            let mut inspikes =
+                extract_spike_train_into_inspikes(spike_train, &self.connections[neuron.id()]);
+
+            let weights = neuron.memorize_periodic_spike_train(
+                &firing_times,
+                &mut inspikes,
                 period,
                 lim_weights,
                 max_level,
@@ -552,101 +628,50 @@ impl Network {
                 half_width,
                 objective,
             )?;
-            info!("Neuron {} successfully optimized", neuron.id());
-        }
-
-        let phi = self.compute_jitter_eigenvalue(spike_trains, period, rng);
-        Ok(phi)
-    }
-
-    // pub fn memorize_many_periodic_spike_trains(
-    //     &mut self,
-    //     id: usize,
-    //     spike_trains: &[SpikeTrain], // to be adapted to &Vec<HashMap<usize, Vec<f64>>> for multiple memories
-    //     period: f64,
-    //     lim_weights: (f64, f64),
-    //     max_level: f64,
-    //     min_slope: f64,
-    //     half_width: f64,
-    //     feas_only: bool,
-    // ) -> Result<(), SNNError> {
-    //     todo!();
-    // }
-
-    fn compute_jitter_eigenvalue<R: Rng>(
-        &self,
-        spike_train: &Vec<Spike>,
-        period: f64,
-        rng: &mut R,
-    ) -> f64 {
-        // First sort all spikes by time of occurence
-        // let mut sorted_spikes: Vec<(usize, f64)> = spike_trains
-        //     .iter()
-        //     .flat_map(|spike_train| {
-        //         spike_train
-        //             .firing_times()
-        //             .iter()
-        //             .map(|&t| (spike_train.id(), t))
-        //     })
-        //     .collect::<Vec<(usize, f64)>>();
-        
-        let num_spikes = spike_train.len();
-
-        let mut spike_train_and_jitters = spike_train.iter()
-            .map(|spike| {
-                let jitter = rng.gen::<f64>();
-                (spike.clone(), jitter)
-            })
-            .collect::<Vec<(Spike, f64)>>();
-        spike_train_and_jitters.sort_by(|(spike_1,_), (spike_2,_)| spike_1.time().partial_cmp(&spike_2.time()).unwrap());
-
-        let norm = spike_train_and_jitters.iter().fold(0.0, |acc, (_, jitter)| acc + jitter * jitter).sqrt();
-        // Init the jitters randomly and normalize them
-        spike_train_and_jitters.iter_mut().for_each(|(_, jitter)| *jitter /= norm);
-
-        todo!();
-        for _ in 0..NUM_ITER_EIGENVALUE {
-            let global_drift = sorted_spikes
-                .iter()
-                .fold(0.0, |acc, &(_, _, dft)| acc + dft);
-
-            for i in 0..num_spikes {
-                let (target_id, ft, _) = sorted_spikes[i];
-                let (a, b) = sorted_spikes
-                    .iter()
-                    .flat_map(move |(source_id, prev_ft, prev_dft)| {
-                        self.connections[target_id][*source_id]
-                            .iter()
-                            .map(move |connection| {
-                                (connection.weight(), connection.delay(), prev_ft, prev_dft)
-                            })
-                    })
-                    .fold(
-                        (0.0, 0.0),
-                        |(acc_a, acc_b), (weight, delay, _, prev_dft)| {
-                            let dt = (ft - prev_dft - delay).rem_euclid(period);
-                            let tmp = weight * (1_f64 - dt) * (1_f64 - dt).exp();
-                            (acc_a + prev_dft * tmp, acc_b + tmp)
-                        },
-                    );
-                sorted_spikes[i].2 = a / b;
+            for (id, weight) in weights.iter().enumerate() {
+                self.connections[neuron.id()][id].set_weight(*weight);
             }
 
-            sorted_spikes
-                .iter_mut()
-                .for_each(|(_, _, dft)| *dft -= global_drift);
+            // // Sanity check
+            // let inspikes: Vec<InSpike> = self.connections[neuron.id()]
+            //     .iter()
+            //     .enumerate()
+            //     .flat_map(|(id, input)| {
+            //         spike_train
+            //             .iter()
+            //             .filter(|spike| spike.source_id() == input.source_id())
+            //             .flat_map(move |spike| {
+            //                 (-2..1).map(move |i| {
+            //                     InSpike::new(
+            //                         id,
+            //                         input.weight(),
+            //                         spike.time() + input.delay() + i as f64 * period,
+            //                     )
+            //                 })
+            //             })
+            //     })
+            //     .collect();
+            // for &ft in firing_times.iter() {
+            //     debug!(
+            //         "Potential at firing time {}: {}",
+            //         ft,
+            //         potential(&inspikes, ft)
+            //     );
+            // }
+            // for &ft in firing_times.iter() {
+            //     debug!(
+            //         "Potential at time {}: {}",
+            //         ft + REFRACTORY_PERIOD,
+            //         potential(&inspikes, ft + REFRACTORY_PERIOD)
+            //     );
+            // }
+            // for t in (0..(period as usize)).map(|i| i as f64) {
+            //     debug!("Potential at time {}: {}", t, potential(&inspikes, t));
+            // }
 
-            let norm = sorted_spikes
-                .iter()
-                .fold(0.0, |acc, &(_, _, dft)| acc + dft * dft)
-                .sqrt();
-            sorted_spikes
-                .iter_mut()
-                .for_each(|(_, _, dft)| *dft /= norm);
+            info!("Neuron {} successfully optimized", neuron.id());
         }
-
-        // Returns the norm of the jitter vector, i.e., the spectral radius
-        norm
+        Ok(())
     }
 }
 
@@ -655,6 +680,8 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use tempfile::NamedTempFile;
+
+    use crate::spike_train::rand_spike_train;
 
     use super::*;
 
@@ -686,7 +713,7 @@ mod tests {
         network.add_connection(2, 3, 1.0, 5.0).unwrap();
         assert_eq!(
             network.add_connection(2, 3, 1.0, -1.0).unwrap_err(),
-            SNNError::InvalidDelay
+            SNNError::InvalidParameters("Connection delay must be non-negative".to_string())
         );
         assert_eq!(
             network.add_connection(5, 3, 1.0, 0.0).unwrap_err(),
@@ -697,23 +724,14 @@ mod tests {
         assert_eq!(network.num_connections(), 5);
 
         let expected_connections = vec![
-            vec![vec![]; 4],
+            vec![],
+            vec![Connection::build(0, 1, 1.0, 1.0).unwrap()],
+            vec![],
             vec![
-                vec![Connection::build(0, 0, 1, 1.0, 1.0).unwrap()],
-                vec![],
-                vec![],
-                vec![],
-            ],
-            vec![vec![]; 4],
-            vec![
-                vec![Connection::build(2, 0, 3, 1.0, 0.0).unwrap()],
-                vec![],
-                vec![
-                    Connection::build(3, 2, 3, 1.0, 0.25).unwrap(),
-                    Connection::build(1, 2, 3, -1.0, 1.0).unwrap(),
-                    Connection::build(4, 2, 3, 1.0, 5.0).unwrap(),
-                ],
-                vec![],
+                Connection::build(0, 3, 1.0, 0.0).unwrap(),
+                Connection::build(2, 3, 1.0, 0.25).unwrap(),
+                Connection::build(2, 3, -1.0, 1.0).unwrap(),
+                Connection::build(2, 3, 1.0, 5.0).unwrap(),
             ],
         ];
         assert_eq!(network.connections, expected_connections);
@@ -770,16 +788,12 @@ mod tests {
         assert!(network
             .connections
             .iter()
-            .all(
-                |connections_from| connections_from.iter().all(|connections_between| {
-                    connections_between.iter().all(|connection| {
-                        connection.weight() >= -0.1
-                            && connection.weight() <= 0.1
-                            && connection.delay() >= 0.1
-                            && connection.delay() <= 10.0
-                    })
-                })
-            ));
+            .all(|inputs| inputs.iter().all(|input| {
+                input.weight() >= -0.1
+                    && input.weight() <= 0.1
+                    && input.delay() >= 0.1
+                    && input.delay() <= 10.0
+            })));
 
         let network = Network::rand(
             20,
@@ -853,15 +867,17 @@ mod tests {
         network.add_connection(2, 3, 2.0, 1.0).unwrap();
         network.add_connection(0, 3, -1.0, 2.5).unwrap();
 
-        let spike_trains = vec![Spike::new(0, 0.5), Spike::new(1, 0.75)];
-
+        let spike_train = vec![Spike::new(0, 0.5), Spike::new(1, 0.75)];
         network
-            .run(&spike_trains, 0.0, 10.0, 0.0, &mut rng)
+            .extend_all_firing_times_from_spike_train(&spike_train)
             .unwrap();
-        assert_eq!(network.firing_times(0).unwrap(), &[0.5]);
-        assert_eq!(network.firing_times(1).unwrap(), &[0.75]);
-        assert_eq!(network.firing_times(2).unwrap(), &[2.0]);
-        assert_eq!(network.firing_times(3).unwrap(), &[4.0]);
+        network.extend_all_inspikes_from_spike_train(&spike_train);
+
+        network.run(0.0, 10.0, 0.0, &mut rng).unwrap();
+        assert_eq!(
+            network.firing_times(),
+            vec![vec![0.5], vec![0.75], vec![2.0], vec![4.0]]
+        );
     }
 
     #[test]
@@ -870,11 +886,13 @@ mod tests {
 
         let mut network = Network::new(0);
 
-        let spike_trains = vec![];
-
+        let spike_train = vec![];
         network
-            .run(&spike_trains, 0.0, 10.0, 0.0, &mut rng)
+            .extend_all_firing_times_from_spike_train(&spike_train)
             .unwrap();
+        network.extend_all_inspikes_from_spike_train(&spike_train);
+
+        network.run(0.0, 10.0, 0.0, &mut rng).unwrap();
     }
 
     #[test]
@@ -883,48 +901,51 @@ mod tests {
 
         let mut network = Network::new(3);
 
-        let spike_trains = vec![
+        let spike_train = vec![
             Spike::new(0, 0.0),
             Spike::new(0, 2.0),
             Spike::new(0, 5.0),
             Spike::new(1, 1.0),
             Spike::new(1, 7.0),
         ];
-
         network
-            .run(&spike_trains, 0.0, 10.0, 0.0, &mut rng)
+            .extend_all_firing_times_from_spike_train(&spike_train)
             .unwrap();
-        assert_eq!(network.firing_times(0).unwrap(), &[0.0, 2.0, 5.0]);
-        assert_eq!(network.firing_times(1).unwrap(), &[1.0, 7.0]);
-        assert!(network.firing_times(2).unwrap().is_empty());
+        network.extend_all_inspikes_from_spike_train(&spike_train);
+
+        network.run(0.0, 10.0, 0.0, &mut rng).unwrap();
+        assert_eq!(
+            network.firing_times(),
+            vec![vec![0.0, 2.0, 5.0], vec![1.0, 7.0], vec![]]
+        );
     }
 
     // #[test]
-    // fn test_network_memorize_empty_periodic_spike_trains() {
-    //     let mut rng = StdRng::seed_from_u64(SEED);
-    //     let mut network = Network::rand(
-    //         100,
-    //         500 * 100,
-    //         (-0.2, 0.2),
-    //         (0.1, 10.0),
-    //         Topology::Fin,
-    //         &mut rng,
-    //     )
-    //     .unwrap();
-    //     let spike_trains = SpikeTrain::rand(200, 100.0, 0.0, &mut rng).unwrap();
+    fn test_network_memorize_empty_periodic_spike_trains() {
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut network = Network::rand(
+            100,
+            500 * 100,
+            (-0.2, 0.2),
+            (0.1, 10.0),
+            Topology::Fin,
+            &mut rng,
+        )
+        .unwrap();
+        let spike_trains = rand_spike_train(200, 100.0, 0.0, &mut rng).unwrap();
 
-    //     network
-    //         .memorize_periodic_spike_trains(
-    //             &spike_trains,
-    //             100.0,
-    //             (-0.2, 0.2),
-    //             0.0,
-    //             0.2,
-    //             0.2,
-    //             Objective::L2Norm,
-    //         )
-    //         .unwrap();
-    // }
+        network
+            .memorize_periodic_spike_train(
+                &spike_trains,
+                100.0,
+                (-0.2, 0.2),
+                0.0,
+                0.2,
+                0.2,
+                Objective::L2Norm,
+            )
+            .unwrap();
+    }
 
     // #[test]
     // fn test_network_memorize_rand_periodic_spike_trains() {
@@ -938,16 +959,17 @@ mod tests {
     //         &mut rng,
     //     )
     //     .unwrap();
-    //     let spike_trains = SpikeTrain::rand(200, 50.0, 0.2, &mut rng).unwrap();
+    //     let spike_trains = rand_spike_train(200, 50.0, 0.2, &mut rng).unwrap();
 
     //     network
-    //         .memorize_periodic_spike_trains(
+    //         .memorize_periodic_spike_train(
     //             &spike_trains,
     //             50.0,
     //             (-0.2, 0.2),
     //             0.0,
     //             0.2,
     //             0.2,
+    //             Objective::L2Norm,
     //             &mut rng,
     //         )
     //         .unwrap();

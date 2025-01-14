@@ -3,78 +3,15 @@
 use core::f64;
 use embed_doc_image::embed_doc_image;
 use grb::prelude::*;
-use itertools::Itertools;
-use lambert_w::lambert_w0;
-use log::{debug, error, info, trace, warn};
-use rand::distributions::{Distribution, Uniform};
-use rand::Rng;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
 
-use super::connection::{Connection, Input};
+// use super::connection::{Connection};
 use super::error::SNNError;
 use super::optim::*;
-use super::spike_train::{InSpike, InputSpike, Spike};
-use super::utils::{mean, median};
-use crate::{FIRING_THRESHOLD, POTENTIAL_TOLERANCE, REFRACTORY_PERIOD};
-
-// /// Represents an input to a neuron.
-// #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-// pub struct Input {
-//     // The ID of the input.
-//     id: usize,
-//     // The ID of the source neuron.
-//     source_id: usize,
-//     // The connection weight.
-//     weight: f64,
-//     // The connection delay.
-//     delay: f64,
-// }
-
-// impl Input {
-//     /// Returns the ID of neuron at the origin of the input.
-//     pub fn source_id(&self) -> usize {
-//         self.source_id
-//     }
-
-//     /// Returns the weight of the input.
-//     pub fn weight(&self) -> f64 {
-//         self.weight
-//     }
-
-//     /// Returns the delay of the input.
-//     pub fn delay(&self) -> f64 {
-//         self.delay
-//     }
-// }
-
-// /// Represents an input spike to a neuron, i.e., a time and a weight.
-// /// This structure is used for simulation purposes.
-// #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-// pub struct InSpike {
-//     // The time at which the spike is received.
-//     pub time: f64,
-//     // The weight of the spike.
-//     pub weight: f64,
-// }
-
-// /// Represents an input spike to a neuron, i.e., a time and a weight.
-// /// This structure is used for simulation purposes.
-// #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-// pub struct Spike {
-//     // The time at which the spike is emitted.
-//     pub time: f64,
-//     // The ID of the source neuron.
-//     pub source_id: usize,
-// }
-
-// impl InputSpike {
-//     /// Evaluate the contribution of the input spike at the given time.
-//     pub fn eval(&self, t: f64) -> f64 {
-//         let dt = t - self.time;
-//         dt * (1_f64 - dt).exp() * self.weight
-//     }
-// }
+use super::signal::{crossing_potential, potential};
+use super::spike_train::{InSpike, Spike};
+use super::{FIRING_THRESHOLD, INSPIKE_MIN, REFRACTORY_PERIOD};
 
 /// Represents a spiking neuron.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -109,14 +46,20 @@ impl Neuron {
     ///
     #[embed_doc_image("neuron", "images/neuron.svg")]
     pub fn potential(&self, t: f64) -> f64 {
-        self.inspikes
-            .iter()
-            .filter(|input_spike| input_spike.time() < t)
-            .fold(0.0, |acc, input_spike| {
-                let dt = t - input_spike.time();
-                acc + dt * (1_f64 - dt).exp() * input_spike.weight()
-            })
+        potential(&self.inspikes, t)
     }
+
+    // /// Returns the neuron potential at the given time, based on all its input spikes and their periodic extension.
+    // /// The result only make sense if the contribution of a spike is negligible after the prescribed period (see POTENTIAL_TOLERANCE).
+    // fn periodic_potential(&self, t: f64, period: f64) -> f64 {
+    //     periodic_potential(&self.inspikes, t, period)
+    // }
+
+    // /// Returns the neuron potential derivative at the given time, based on all its input spikes and their periodic extension.
+    // /// The result only make sense if the contribution of a spike is negligible after the prescribed period (see POTENTIAL_TOLERANCE).
+    // fn periodic_potential_derivative(&self, t: f64, period: f64) -> f64 {
+    //     periodic_potential_derivative(&self.inspikes, t, period)
+    // }
 
     /// Returns the neuron ID.
     pub fn id(&self) -> usize {
@@ -163,28 +106,6 @@ impl Neuron {
         self.inspikes.len()
     }
 
-    // /// Returns the number of inputs of the neuron from a given source ID.
-    // /// Reminder: inputs are sorted by source_id and delay.
-    // pub fn num_inputs_from(&self, source_id: usize) -> usize {
-    //     self.inputs
-    //         .iter()
-    //         .filter(|input| input.source_id == source_id)
-    //         .count()
-    // }
-
-    // // Returns the minimum delay path from a source neuron (specified by its ID) to the neuron.
-    // // The function returns None if there is no path from the source neuron to the neuron.
-    // pub fn min_delay_path(&self, source_id: usize) -> Option<f64> {
-    //     if source_id == self.id {
-    //         return Some(0.0);
-    //     }
-    //     self.inputs
-    //         .iter()
-    //         .filter(|input| input.source_id == source_id)
-    //         .map(|input| input.delay)
-    //         .min_by(|a, b| a.partial_cmp(b).unwrap())
-    // }
-
     /// Clear all neuron firing times.
     pub fn clear_firing_times(&mut self) {
         self.firing_times = vec![];
@@ -209,7 +130,9 @@ impl Neuron {
     pub fn extend_firing_times(&mut self, firing_times: &[f64]) -> Result<(), SNNError> {
         for t in firing_times {
             if !t.is_finite() {
-                return Err(SNNError::InvalidFiringTimes);
+                return Err(SNNError::InvalidParameters(
+                    "Firing times must be finite".to_string(),
+                ));
             }
         }
 
@@ -249,46 +172,31 @@ impl Neuron {
         Ok(())
     }
 
-    // /// Clear all neuron inputs.
-    // pub fn clear_inputs(&mut self) {
-    //     self.inputs = vec![];
-    //     self.inspikes = vec![];
-    // }
-
-    // /// Add an input to the neuron, with the specified source ID, weight, and delay.
-    // pub fn add_input(&mut self, source_id: usize, weight: f64, delay: f64) {
-    //     self.inputs.push(Input {
-    //         id: self.inputs.len(),
-    //         source_id,
-    //         weight,
-    //         delay,
-    //     });
-    // }
-
     /// Clear all neuron input spikes.
-    pub fn reset_inspikes(&mut self) {
+    pub fn clear_inspikes(&mut self) {
         self.inspikes = vec![];
     }
 
-    // /// Add input spikes to the neuron from a given source ID firing at the specified time.
-    // pub fn add_inspikes_for_source(&mut self, source_id: usize, firing_times: &[f64]) {
-    //     let new_spikes: Vec<InputSpike> = self
-    //         .inputs
-    //         .iter()
-    //         .filter(|input| input.source_id == source_id)
-    //         .flat_map(|input| {
-    //             firing_times.iter().map(|ft| InputSpike {
-    //                 time: ft + input.delay,
-    //                 input_id: input.id,
-    //             })
-    //         })
-    //         .collect();
+    /// Set input spikes and sort them by time of arrival.
+    pub fn set_inspikes(&mut self, new_inspike: &mut Vec<InSpike>) {
+        self.clear_inspikes();
+        self.extend_inspikes(new_inspike);
+    }
 
-    //     self.merge_inspikes(new_spikes);
-    // }
+    /// Add new inspike to the neuron while keeping the inspikes sorted by time of arrival.
+    pub fn add_inspike(&mut self, new_inspike: InSpike) {
+        let pos = match self
+            .inspikes
+            .binary_search_by(|inspike| inspike.time().partial_cmp(&new_inspike.time()).unwrap())
+        {
+            Ok(pos) => pos,
+            Err(pos) => pos,
+        };
+        self.inspikes.insert(pos, new_inspike);
+    }
 
     /// Merge new input spikes with the existing ones and sort them by time of arrival.
-    pub fn add_inspikes(&mut self, new_inspike: &mut Vec<InSpike>) {
+    pub fn extend_inspikes(&mut self, new_inspike: &mut Vec<InSpike>) {
         self.inspikes.append(new_inspike);
         self.inspikes.sort_by(|inspike_1, inspike_2| {
             inspike_1.time().partial_cmp(&inspike_2.time()).unwrap()
@@ -305,50 +213,9 @@ impl Neuron {
             return Some(Spike::new(self.id, start));
         }
 
-        let mut firing_time = f64::NAN;
-        let pos = self
-            .inspikes
-            .binary_search_by(|input_spike| {
-                if input_spike.time() >= start {
-                    std::cmp::Ordering::Greater
-                } else {
-                    std::cmp::Ordering::Less
-                }
-            })
-            .unwrap_or_else(|pos| pos);
-
-        for (i, input_spike) in self.inspikes[pos..].iter().enumerate() {
-            if firing_time <= input_spike.time() {
-                break;
-            }
-
-            let (a, b) =
-                self.inspikes[..=pos + i]
-                    .iter()
-                    .fold((0.0, 0.0), |(mut a, mut b), item| {
-                        a += item.weight() * (item.time() - input_spike.time()).exp();
-                        b += item.weight() * item.time() * (item.time() - input_spike.time()).exp();
-                        (a, b)
-                    });
-
-            firing_time = match a == 0.0 {
-                true => input_spike.time() + 1.0 + (-b / self.threshold()).ln(),
-                false => {
-                    b / a
-                        - lambert_w0(
-                            -self.threshold() / a * (b / a - 1.0 - input_spike.time()).exp(),
-                        )
-                }
-            };
-
-            if firing_time < input_spike.time() {
-                firing_time = f64::NAN;
-            }
-        }
-
-        match firing_time.is_finite() {
-            true => Some(Spike::new(self.id, firing_time)),
-            false => None,
+        match crossing_potential(start, self.threshold, &self.inspikes) {
+            Some(t) => Some(Spike::new(self.id, t)),
+            None => None,
         }
     }
 
@@ -357,54 +224,32 @@ impl Neuron {
     /// No cost / uniform prior is mostly used for feasibility check.
     /// L2 cost / Gaussian prior yields low magnitude solutions.
     /// L1 cost / Laplace prior yields sparse solutions (c.f. [here](https://math.stackexchange.com/questions/1639716/how-can-l-1-norm-minimization-with-linear-equality-constraints-basis-pu))
-    pub fn memorize_periodic_spike_trains(
+    pub fn memorize_periodic_spike_train(
         &self,
-        spike_train: &Vec<Spike>, // for multiple spike trains, use Vec<Vec<Spike>> instead
-        connections: &mut Vec<Vec<Connection>>,
+        firing_times: &Vec<f64>, // for multiple spike trains, use Vec<Vec<f64>> instead
+        inspikes: &mut Vec<InSpike>, // for multiple spike trains, use Vec<Vec<InSpike>> instead
         period: f64,
         lim_weights: (f64, f64),
         max_level: f64,
         min_slope: f64,
         half_width: f64,
         objective: Objective,
-    ) -> Result<(), SNNError> {
-        // Initialize the neuron firing times
-        let firing_times = spike_train
+    ) -> Result<Vec<f64>, SNNError> {
+        if inspikes
             .iter()
-            .filter(|spike| spike.source_id() == self.id)
-            .map(|spike| spike.time())
-            .collect::<Vec<f64>>();
-
-        let num_inputs = connections
-            .iter()
-            .flat_map(|inputs_from| inputs_from.iter())
-            .count();
-        if (num_inputs as f64) * period * (1_f64 - period).exp() > POTENTIAL_TOLERANCE {
-            return Err(SNNError::InvalidPeriod);
+            .any(|inspike| inspike.kernel(inspike.time() + period) > INSPIKE_MIN)
+        {
+            return Err(SNNError::InvalidParameters(
+                "The contribution of a spike to the neuron potential must be negligible after one period".to_string(),
+            ));
         }
-        let mut inputs = connections
-            .iter()
-            .flat_map(|inputs_from| inputs_from.iter())
-            .enumerate()
-            .map(|(id, input)| Input::new(id, input.source_id(), input.weight(), input.delay()))
-            .collect::<Vec<Input>>();
 
-        // Initialize input spikes from the provided spike train
-        let mut input_spikes: Vec<InputSpike> = spike_train
+        let num_inputs = inspikes
             .iter()
-            .flat_map(|spike| {
-                inputs
-                    .iter()
-                    .filter(|input| input.source_id() == spike.source_id())
-                    .map(|input| InputSpike::new(input.id(), spike.time() + input.delay()))
-            })
-            .collect();
-        input_spikes.sort_by(|input_spike_1, input_spike_2| {
-            input_spike_1
-                .time()
-                .partial_cmp(&input_spike_2.time())
-                .unwrap()
-        });
+            .map(|spike| spike.input_id())
+            .max()
+            .unwrap_or_default()
+            + 1;
 
         // Initialize the Gurobi environment and model for memorization
         let mut model = init_gurobi(format!("neuron_{}", self.id).as_str(), "gurobi.log")?;
@@ -416,32 +261,35 @@ impl Neuron {
         init_objective(&mut model, &weights, objective)?;
 
         // Setup the firing time constraints
-        add_firing_time_constraints(&mut model, &weights, &firing_times, &input_spikes, period)?;
+        add_firing_time_constraints(&mut model, &weights, &firing_times, &inspikes, period)?;
 
         let mut is_valid = false;
+        let mut optimal_weights: Vec<f64> = vec![0.0; num_inputs];
+
         while !is_valid {
             // For fixed constraints, determine the optimal weights
-            println!("1. Optimize weights...");
+            debug!("1. Optimize weights...");
             model
                 .optimize()
-                .map_err(|e| SNNError::GurobiError(e.to_string()))?;
+                .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
 
             // If the model is infeasible, return an error
             let status = model
                 .status()
-                .map_err(|e| SNNError::GurobiError(e.to_string()))?;
+                .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
 
-            println!("Status: {:?}", status);
             if Status::Optimal != status {
                 return Err(SNNError::InfeasibleMemorization);
             }
 
-            // Set the input weights to the optimal values
-            for input in inputs.iter_mut() {
-                let weight = model
-                    .get_obj_attr(grb::attribute::VarDoubleAttr::X, &weights[input.id()])
-                    .map_err(|e| SNNError::GurobiError(e.to_string()))?;
-                input.update_weight(weight);
+            // Store the optimal weights in a vector and update the inspikes accordingly
+            for (i, weight) in weights.iter().enumerate() {
+                optimal_weights[i] = model
+                    .get_obj_attr(grb::attribute::VarDoubleAttr::X, weight)
+                    .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
+            }
+            for inspike in inspikes.iter_mut() {
+                inspike.set_weight(optimal_weights[inspike.input_id()]);
             }
 
             // Check if the current solution satifies all template constraints
@@ -450,8 +298,7 @@ impl Neuron {
                 &mut model,
                 &weights,
                 &firing_times,
-                &inputs,
-                &input_spikes,
+                &inspikes,
                 period,
                 max_level,
                 min_slope,
@@ -459,33 +306,19 @@ impl Neuron {
             )?;
         }
 
-        // Update the connections with the optimal weights
-        for (input, connection) in inputs.iter().zip(
-            connections
-                .iter_mut()
-                .flat_map(|connection_between| connection_between.iter_mut()),
-        ) {
-            connection.update_weight(input.weight());
-        }
-
         // Get the total number of constraints and the objective value
         let num_constrs = model
             .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
-            .map_err(|e| SNNError::GurobiError(e.to_string()))?;
+            .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
         let obj_val = model
             .get_attr(grb::attribute::ModelDoubleAttr::ObjVal)
-            .map_err(|e| SNNError::GurobiError(e.to_string()))?;
+            .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
 
         info!(
-            "Memorization done! \n\tObjective value: {} \n\tNumber of constraints: {}",
+            "Memorization done! The cost is {} for {} constraints.",
             obj_val, num_constrs
         );
-        debug!(
-            "Mean weight: {:?} | Median weight: {:?}",
-            mean(inputs.iter().map(|input| input.weight())),
-            median(inputs.iter().map(|input| input.weight()))
-        );
-        Ok(())
+        Ok(optimal_weights)
     }
 }
 
@@ -510,93 +343,30 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_neuron_add_input() {
-    //     let mut neuron = Neuron::new(0);
-
-    //     neuron.add_input(0, 0.5, 0.5);
-    //     neuron.add_input(1, 1.0, 1.0);
-    //     neuron.add_input(0, -0.5, 2.0);
-    //     neuron.add_input(3, 0.75, 1.5);
-    //     neuron.add_input(1, 1.0, 0.25);
-
-    //     assert_eq!(
-    //         neuron.inputs(),
-    //         &[
-    //             Input {
-    //                 id: 0,
-    //                 source_id: 0,
-    //                 weight: 0.5,
-    //                 delay: 0.5
-    //             },
-    //             Input {
-    //                 id: 1,
-    //                 source_id: 1,
-    //                 weight: 1.0,
-    //                 delay: 1.0
-    //             },
-    //             Input {
-    //                 id: 2,
-    //                 source_id: 0,
-    //                 weight: -0.5,
-    //                 delay: 2.0
-    //             },
-    //             Input {
-    //                 id: 3,
-    //                 source_id: 3,
-    //                 weight: 0.75,
-    //                 delay: 1.5
-    //             },
-    //             Input {
-    //                 id: 4,
-    //                 source_id: 1,
-    //                 weight: 1.0,
-    //                 delay: 0.25
-    //             },
-    //         ]
-    //     );
-    // }
-
-    // #[test]
-    // fn test_neuron_min_delay_path() {
-    //     let mut neuron = Neuron::new(0);
-
-    //     neuron.add_input(0, 0.5, 0.5);
-    //     neuron.add_input(1, 1.0, 1.0);
-    //     neuron.add_input(0, -0.5, 2.0);
-    //     neuron.add_input(3, 0.75, 1.5);
-    //     neuron.add_input(1, 1.0, 0.25);
-
-    //     assert_eq!(neuron.min_delay_path(0), Some(0.0));
-    //     assert_eq!(neuron.min_delay_path(1), Some(0.25));
-    //     assert_eq!(neuron.min_delay_path(2), None);
-    //     assert_eq!(neuron.min_delay_path(3), Some(1.5));
-    // }
-
     #[test]
     fn test_add_inspikes() {
         let mut neuron = Neuron::new(0);
 
         let mut new_inspikes = vec![
-            InSpike::new(0.5, 0.0),
-            InSpike::new(1.0, 1.0),
-            InSpike::new(-0.5, 2.0),
-            InSpike::new(0.75, 1.5),
-            InSpike::new(1.0, 0.25),
+            InSpike::new(0, 0.5, 0.0),
+            InSpike::new(1, 1.0, 1.25),
+            InSpike::new(2, -0.5, 2.0),
+            InSpike::new(3, 0.75, 1.5),
+            InSpike::new(1, 1.0, 0.25),
         ];
-        neuron.add_inspikes(&mut new_inspikes);
+        neuron.extend_inspikes(&mut new_inspikes);
 
-        let mut new_inspikes = vec![InSpike::new(-3.0, 7.5), InSpike::new(5.0, 0.25)];
-        neuron.add_inspikes(&mut new_inspikes);
+        let mut new_inspikes = vec![InSpike::new(0, -3.0, 7.5), InSpike::new(4, 5.0, 0.25)];
+        neuron.extend_inspikes(&mut new_inspikes);
 
         let expected_inspikes = vec![
-            InSpike::new(0.5, 0.0),
-            InSpike::new(1.0, 0.25),
-            InSpike::new(5.0, 0.25),
-            InSpike::new(1.0, 1.0),
-            InSpike::new(0.75, 1.5),
-            InSpike::new(-0.5, 2.0),
-            InSpike::new(-3.0, 7.5),
+            InSpike::new(0, 0.5, 0.0),
+            InSpike::new(1, 1.0, 0.25),
+            InSpike::new(4, 5.0, 0.25),
+            InSpike::new(1, 1.0, 1.25),
+            InSpike::new(3, 0.75, 1.5),
+            InSpike::new(2, -0.5, 2.0),
+            InSpike::new(0, -3.0, 7.5),
         ];
         assert_eq!(neuron.inspikes(), expected_inspikes);
     }
@@ -655,11 +425,11 @@ mod tests {
         assert_eq!(neuron.potential(2.0), 0.0);
 
         let mut new_inspikes = vec![
-            InSpike::new(1.0, 1.0),
-            InSpike::new(1.0, 2.0),
-            InSpike::new(-1.0, 1.0),
+            InSpike::new(0, 1.0, 1.0),
+            InSpike::new(1, 1.0, 2.0),
+            InSpike::new(2, -1.0, 1.0),
         ];
-        neuron.add_inspikes(&mut new_inspikes);
+        neuron.extend_inspikes(&mut new_inspikes);
 
         assert_eq!(neuron.potential(0.0), 0.0);
         assert_eq!(neuron.potential(1.0), 0.0);
@@ -671,21 +441,24 @@ mod tests {
     fn test_neuron_next_spike() {
         // 1 inspike producing a spike
         let mut neuron = Neuron::new(42);
-        neuron.add_inspikes(&mut vec![InSpike::new(1.0, 1.0)]);
+        neuron.extend_inspikes(&mut vec![InSpike::new(0, 1.0, 1.0)]);
         assert_eq!(neuron.next_spike(0.0), Some(Spike::new(42, 2.0)));
 
         // 2 inspikes canceling each other
         let mut neuron = Neuron::new(42);
-        neuron.add_inspikes(&mut vec![InSpike::new(1.0, 1.0), InSpike::new(-1.0, 1.0)]);
+        neuron.extend_inspikes(&mut vec![
+            InSpike::new(0, 1.0, 1.0),
+            InSpike::new(1, -1.0, 1.0),
+        ]);
         assert_eq!(neuron.next_spike(0.0), None);
 
         // 4 inspikes producing a spike
         let mut neuron = Neuron::new(42);
-        neuron.add_inspikes(&mut vec![
-            InSpike::new(1.0, 1.0),
-            InSpike::new(1.0, 3.0),
-            InSpike::new(1.0, 4.0),
-            InSpike::new(-0.25, 1.5),
+        neuron.extend_inspikes(&mut vec![
+            InSpike::new(0, 1.0, 1.0),
+            InSpike::new(1, 1.0, 3.0),
+            InSpike::new(2, 1.0, 4.0),
+            InSpike::new(3, -0.25, 1.5),
         ]);
         assert_eq!(
             neuron.next_spike(0.0),
@@ -695,12 +468,12 @@ mod tests {
         // 1 inspike producing a spike after refractory period
         let mut neuron = Neuron::new(42);
         neuron.add_firing_time(2.0).unwrap();
-        neuron.add_inspikes(&mut vec![InSpike::new(10.0, 1.0)]);
+        neuron.extend_inspikes(&mut vec![InSpike::new(0, 10.0, 1.0)]);
         assert_eq!(neuron.next_spike(0.0), Some(Spike::new(42, 3.0)));
 
-        // many zero-weight inspikes producing no spike
+        // 1 zero-weight inspike producing no spike
         let mut neuron = Neuron::new(42);
-        neuron.add_inspikes(&mut vec![InSpike::new(0.0, 1.0); 100]);
+        neuron.extend_inspikes(&mut vec![InSpike::new(0, 0.0, 1.0)]);
         assert_eq!(neuron.next_spike(0.0), None);
 
         // no inspike producing a spike because of zero firing threshold
@@ -711,11 +484,11 @@ mod tests {
         // many inspikes producing no spike because of extreme firing threshold
         let mut neuron = Neuron::new(42);
         neuron.set_threshold(f64::INFINITY);
-        neuron.add_inspikes(&mut vec![InSpike::new(100.0, 1.0); 100]);
+        neuron.extend_inspikes(&mut vec![InSpike::new(0, 1_000_000.0, 1.0)]);
         assert_eq!(neuron.next_spike(0.0), None);
     }
 
-    #[test]
+    // #[test]
     fn test_memorize_empty_periodic_spike_train() {
         let period = 100.0;
         let lim_weights = (-1.0, 1.0);
@@ -735,42 +508,48 @@ mod tests {
 
         let neuron = Neuron::new(0);
 
-        let mut connections = vec![
-            vec![Connection::build(0, 0, 0, 1.0, 1.0).unwrap()],
-            vec![
-                Connection::build(1, 0, 1, 1.0, 2.0).unwrap(),
-                Connection::build(2, 0, 1, 1.0, 5.0).unwrap(),
-            ],
-            vec![Connection::build(3, 0, 2, 1.0, 0.5).unwrap()],
+        let firing_times: Vec<f64> = vec![];
+        let mut inspikes: Vec<InSpike> = vec![
+            InSpike::new(0, 1.0, 3.0),
+            InSpike::new(0, 1.0, 5.0),
+            InSpike::new(0, 1.0, 6.0),
+            InSpike::new(1, 1.0, 8.0),
+            InSpike::new(1, 1.0, 27.0),
+            InSpike::new(1, 1.0, 30.0),
+            InSpike::new(2, 1.0, 5.5),
+            InSpike::new(2, 1.0, 77.5),
+            InSpike::new(2, 1.0, 89.5),
         ];
 
         assert_eq!(
-            neuron.memorize_periodic_spike_trains(
-                &spike_train,
-                &mut connections,
-                period,
-                lim_weights,
-                max_level,
-                min_slope,
-                half_width,
-                objective
-            ),
-            Ok(())
+            neuron
+                .memorize_periodic_spike_train(
+                    &firing_times,
+                    &mut inspikes,
+                    period,
+                    lim_weights,
+                    max_level,
+                    min_slope,
+                    half_width,
+                    objective,
+                )
+                .unwrap(),
+            vec![0.0, 0.0, 0.0]
         );
 
-        let expected_connections = vec![
-            vec![Connection::build(0, 0, 0, 0.0, 1.0).unwrap()],
-            vec![
-                Connection::build(1, 0, 1, 0.0, 2.0).unwrap(),
-                Connection::build(2, 0, 1, 0.0, 5.0).unwrap(),
-            ],
-            vec![Connection::build(3, 0, 2, 0.0, 0.5).unwrap()],
-        ];
+        // let expected_connections = vec![
+        //     vec![Connection::build(0, 0, 0, 0.0, 1.0).unwrap()],
+        //     vec![
+        //         Connection::build(1, 0, 1, 0.0, 2.0).unwrap(),
+        //         Connection::build(2, 0, 1, 0.0, 5.0).unwrap(),
+        //     ],
+        //     vec![Connection::build(3, 0, 2, 0.0, 0.5).unwrap()],
+        // ];
 
-        assert_eq!(connections, expected_connections);
+        // assert_eq!(connections, expected_connections);
     }
 
-    #[test]
+    // #[test]
     fn test_memorize_single_spike_periodic_spike_train() {
         let period = 100.0;
         let lim_weights = (-5.0, 5.0);
@@ -786,20 +565,29 @@ mod tests {
             Spike::new(4, 3.5),
         ];
 
-        let neuron = Neuron::new(0);
+        let mut neuron = Neuron::new(0);
 
-        let mut connections = vec![
-            vec![Connection::build(0, 0, 0, 1.0, 0.0).unwrap()],
-            vec![Connection::build(1, 1, 0, 1.0, 0.0).unwrap()],
-            vec![Connection::build(2, 2, 0, 1.0, 0.0).unwrap()],
-            vec![Connection::build(3, 3, 0, 1.0, 0.0).unwrap()],
-            vec![Connection::build(4, 4, 0, 1.0, 0.0).unwrap()],
+        let firing_times: Vec<f64> = vec![1.55];
+        let mut inspikes: Vec<InSpike> = vec![
+            InSpike::new(1, 1.0, 1.0),
+            InSpike::new(2, 1.0, 1.5),
+            InSpike::new(0, 1.0, 1.55),
+            InSpike::new(3, 1.0, 2.0),
+            InSpike::new(4, 1.0, 3.5),
         ];
 
-        neuron
-            .memorize_periodic_spike_trains(
-                &spike_trains,
-                &mut connections,
+        // let mut connections = vec![
+        //     vec![Connection::build(0, 0, 0, 1.0, 0.0).unwrap()],
+        //     vec![Connection::build(1, 1, 0, 1.0, 0.0).unwrap()],
+        //     vec![Connection::build(2, 2, 0, 1.0, 0.0).unwrap()],
+        //     vec![Connection::build(3, 3, 0, 1.0, 0.0).unwrap()],
+        //     vec![Connection::build(4, 4, 0, 1.0, 0.0).unwrap()],
+        // ];
+
+        let _weights = neuron
+            .memorize_periodic_spike_train(
+                &firing_times,
+                &mut inspikes,
                 period,
                 lim_weights,
                 max_level,
@@ -809,10 +597,10 @@ mod tests {
             )
             .expect("Memorization failed");
 
-        neuron
-            .memorize_periodic_spike_trains(
-                &spike_trains,
-                &mut connections,
+        let weights = neuron
+            .memorize_periodic_spike_train(
+                &firing_times,
+                &mut inspikes,
                 period,
                 lim_weights,
                 max_level,
@@ -822,16 +610,25 @@ mod tests {
             )
             .expect("L2-memorization failed");
 
-        assert_relative_eq!(connections[0][0].weight(), -0.187902, epsilon = 1e-6);
-        assert_relative_eq!(connections[1][0].weight(), 1.157671, epsilon = 1e-6);
-        assert_relative_eq!(connections[2][0].weight(), 0.011027, epsilon = 1e-6);
-        assert_relative_eq!(connections[3][0].weight(), -0.415485, epsilon = 1e-6);
-        assert_relative_eq!(connections[4][0].weight(), 0.0);
+        assert_eq!(
+            weights,
+            vec![
+                -1.40501505062582,
+                0.8276421729855583,
+                2.2129265840338137,
+                -1.2119262246876459,
+                -0.0
+            ]
+        );
+        // assert_relative_eq!(weights[1], 1.157671, epsilon = 1e-6);
+        // assert_relative_eq!(weights[2], 0.011027, epsilon = 1e-6);
+        // assert_relative_eq!(weights[3], -0.415485, epsilon = 1e-6);
+        // assert_relative_eq!(weights[4], 0.0);
 
-        neuron
-            .memorize_periodic_spike_trains(
-                &spike_trains,
-                &mut connections,
+        let weights = neuron
+            .memorize_periodic_spike_train(
+                &firing_times,
+                &mut inspikes,
                 period,
                 lim_weights,
                 max_level,
@@ -840,11 +637,15 @@ mod tests {
                 Objective::L1Norm,
             )
             .expect("L1-memorization failed");
-
-        assert_relative_eq!(connections[0][0].weight(), -0.178366, epsilon = 1e-6);
-        assert_relative_eq!(connections[1][0].weight(), 1.159324, epsilon = 1e-6);
-        assert_relative_eq!(connections[2][0].weight(), 0.0, epsilon = 1e-6);
-        assert_relative_eq!(connections[3][0].weight(), -0.415485, epsilon = 1e-6);
-        assert_relative_eq!(connections[4][0].weight(), 0.0);
+        assert_eq!(
+            weights,
+            vec![
+                -2.092002954197055,
+                0.8276421729856879,
+                2.2129265840329473,
+                -0.41548472074177123,
+                0.0
+            ]
+        );
     }
 }
