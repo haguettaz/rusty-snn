@@ -22,6 +22,23 @@ lib
 Or workspace is the following crates: network (simulation) and learning.
 Needs to check the rust standard library...
 
+
+core
+    optim (for periodic and non-periodic, single and multi, spike trains)
+    - find_max_potential_in_window (required)
+    - find_min_potential_derivative_in_window (required)
+    - input_eval (required)
+    - lin_jitter (required)
+    - optimize (implemented)
+    - neurons should have inputs as vec but the network has no connections
+
+    sim
+    - find_threshold_crossing
+
+alpha
+
+
+
 # Parallelism
 
 Which parallelism model to use? 
