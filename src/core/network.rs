@@ -72,7 +72,7 @@ impl Connection {
                 .flat_map(|target_id| std::iter::repeat(target_id).take(num_inputs)),
             delay_dist.sample_iter(&mut delay_rng)
         )
-        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, f64::NAN, delay))
+        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, 0.0, delay))
         .collect();
 
         Ok(connections)
@@ -107,7 +107,7 @@ impl Connection {
             target_dist.sample_iter(&mut target_rng),
             delay_dist.sample_iter(&mut delay_rng)
         )
-        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, f64::NAN, delay))
+        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, 0.0, delay))
         .collect();
 
         Ok(connections)
