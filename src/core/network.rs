@@ -1,20 +1,23 @@
-//! Network-related structures and traits.
+//! Network-related module.
 use core::f64;
+use itertools::izip;
 use log;
-// use rand::distributions::{Distribution, Uniform};
-use rand::RngCore;
-use rand_distr::{Distribution,Uniform};
+// use rand::distributions::{Distribution, Uniform}
+use itertools::Itertools;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+use rand_distr::{Distribution, Uniform};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::neuron::{Input, InputSpikeTrain, Neuron};
 use crate::core::optim::{Objective, TimeTemplate};
-use crate::core::spikes::{MultiChannelCyclicSpikeTrain, MultiChannelSpikeTrain, Spike};
+// use crate::core::spikes::MultiChannelCyclicSpikeTrain;
 use crate::core::utils::TimeInterval;
 use crate::error::SNNError;
 
 /// Minimum number of neurons to parallelize the computation.
-pub const MIN_NEURONS_PAR: usize = 10;
+pub const MIN_NEURONS_PAR: usize = 10000;
 
 /// A connection between two neurons.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -23,13 +26,14 @@ pub struct Connection {
     pub source_id: usize,
     /// The ID of the neuron receiving spikes.
     pub target_id: usize,
-    /// The weight of the synapse along which the spikes are transmitted.
+    /// The weight of the connection. Positive for excitatory, negative for inhibitory.
     pub weight: f64,
-    /// The delay of the synapse along which the spikes are transmitted.
+    /// The delay of the connection.
     pub delay: f64,
 }
 
 impl Connection {
+    /// Create a new connection between two neurons.
     pub fn new(source_id: usize, target_id: usize, weight: f64, delay: f64) -> Self {
         Connection {
             source_id,
@@ -39,83 +43,119 @@ impl Connection {
         }
     }
 
-    pub fn rand_fin<R: RngCore>(
-        num_neurons: usize,
+    /// A random collection of connections between neurons, where every neurons has the same number of inputs.
+    pub fn rand_fin(
         num_inputs: usize,
+        lim_source_ids: (usize, usize),
+        lim_target_ids: (usize, usize),
         lim_delays: (f64, f64),
-        rng: &mut R,
+        seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        let (min_delay, max_delay) = lim_delays;
-        if min_delay < 0.0 {
+        if lim_delays.0 < 0.0 {
             return Err(SNNError::InvalidParameters(
                 "Connection delay must be non-negative".to_string(),
             ));
         }
-        let delay_dist = Uniform::new_inclusive(min_delay, max_delay).map_err(|e| {
+        let mut delay_rng = StdRng::seed_from_u64(seed);
+        let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
             SNNError::InvalidParameters(format!("Invalid delay distribution: {}", e))
         })?;
-        let source_dist = Uniform::new(0, num_neurons).map_err(|e| {
+
+        let mut source_rng = StdRng::seed_from_u64(seed);
+        let source_dist = Uniform::new(lim_source_ids.0, lim_source_ids.1).map_err(|e| {
             SNNError::InvalidParameters(format!("Invalid source distribution: {}", e))
         })?;
 
-        let connections: Vec<Connection> = (0..num_neurons * num_inputs)
-            .map(|i| {
-                Connection::new(
-                    source_dist.sample(rng),
-                    i % num_neurons,
-                    f64::NAN,
-                    delay_dist.sample(rng),
-                )
-            })
-            .collect();
+        let connections: Vec<Connection> = izip!(
+            source_dist.sample_iter(&mut source_rng),
+            (lim_target_ids.0..lim_target_ids.1)
+                .flat_map(|target_id| std::iter::repeat(target_id).take(num_inputs)),
+            delay_dist.sample_iter(&mut delay_rng)
+        )
+        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, f64::NAN, delay))
+        .collect();
 
         Ok(connections)
     }
 
-    pub fn rand_fout<R: RngCore>(
-        num_neurons: usize,
+    /// A random collection of connections between neurons, where every neurons has the same number of outputs.
+    pub fn rand_fout(
         num_outputs: usize,
+        lim_source_ids: (usize, usize),
+        lim_target_ids: (usize, usize),
         lim_delays: (f64, f64),
-        rng: &mut R,
+        seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        let (min_delay, max_delay) = lim_delays;
-        if min_delay < 0.0 {
+        if lim_delays.0 < 0.0 {
             return Err(SNNError::InvalidParameters(
                 "Connection delay must be non-negative".to_string(),
             ));
         }
-        let delay_dist = Uniform::new_inclusive(min_delay, max_delay).map_err(|e| {
+        let mut delay_rng = StdRng::seed_from_u64(seed);
+        let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
             SNNError::InvalidParameters(format!("Invalid delay distribution: {}", e))
         })?;
-        let target_dist = Uniform::new(0, num_neurons).map_err(|e| {
+
+        let mut target_rng = StdRng::seed_from_u64(seed);
+        let target_dist = Uniform::new(lim_target_ids.0, lim_target_ids.1).map_err(|e| {
             SNNError::InvalidParameters(format!("Invalid target distribution: {}", e))
         })?;
 
-        let connections: Vec<Connection> = (0..num_neurons * num_outputs)
-            .map(|i| {
-                Connection::new(
-                    i % num_neurons,
-                    target_dist.sample(rng),
-                    f64::NAN,
-                    delay_dist.sample(rng),
-                )
-            })
-            .collect();
+        let connections: Vec<Connection> = izip!(
+            (lim_source_ids.0..lim_source_ids.1)
+                .flat_map(|source_id| std::iter::repeat(source_id).take(num_outputs)),
+            target_dist.sample_iter(&mut target_rng),
+            delay_dist.sample_iter(&mut delay_rng)
+        )
+        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, f64::NAN, delay))
+        .collect();
 
         Ok(connections)
     }
 
+    /// A random collection of connections between neurons, where every neurons has the same number of inputs and outputs.
     #[allow(unused_variables)]
-    pub fn rand_fin_fout<R: RngCore>(
+    pub fn rand_fin_fout(
         num_neurons: usize,
         num_inputs_outputs: usize,
         lim_delays: (f64, f64),
-        rng: &mut R,
+        seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
         todo!();
     }
+
+    /// A random collection of connections between neurons, where every neuron is connected to every other neuron (including itself).
+    #[allow(unused_variables)]
+    pub fn rand_fc(
+        lim_neurons_ids: (usize, usize),
+        lim_delays: (f64, f64),
+        seed: u64,
+    ) -> Result<Vec<Connection>, SNNError> {
+        if lim_delays.0 < 0.0 {
+            return Err(SNNError::InvalidParameters(
+                "Connection delay must be non-negative".to_string(),
+            ));
+        }
+        let mut delay_rng = StdRng::seed_from_u64(seed);
+        let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
+            SNNError::InvalidParameters(format!("Invalid delay distribution: {}", e))
+        })?;
+
+        let connections: Vec<Connection> = izip!(
+            (lim_neurons_ids.0..lim_neurons_ids.1)
+                .cartesian_product(lim_neurons_ids.0..lim_neurons_ids.1),
+            delay_dist.sample_iter(&mut delay_rng)
+        )
+        .map(|((source_id, target_id), delay)| {
+            Connection::new(source_id, target_id, f64::NAN, delay)
+        })
+        .collect();
+
+        Ok(connections)
+    }
 }
 
+/// A network of spiking neurons. 
 pub trait Network {
     type InputSpikeTrain: InputSpikeTrain + std::fmt::Debug;
     type Neuron: Neuron<InputSpikeTrain = Self::InputSpikeTrain>;
@@ -145,26 +185,42 @@ pub trait Network {
         self.neurons_iter().count()
     }
 
-    /// Set the firing times of the neurons in the network from a spike train.
-    fn init_firing_times(&mut self, spike_train: &MultiChannelSpikeTrain) {
+    /// Clear the firing times of the neurons in the network.
+    fn clear_ftimes(&mut self) {
         self.neurons_iter_mut().for_each(|neuron| {
-            if let Some(firing_times) = spike_train.get(neuron.id()) {
-                neuron.firing_times_mut().clear();
-                neuron.firing_times_mut().extend(firing_times);
-            }
+            neuron.ftimes_mut().clear();
+        });
+    }
+
+    /// Set the firing times of the neurons in the network from a multi-channel spike train.
+    fn init_ftimes(&mut self, times: &Vec<Vec<f64>>) {
+        self.clear_ftimes();
+        self.extend_ftimes(times);
+    }
+
+    /// Extend the firing times of the neurons in the network from a multi-channel spike train.
+    fn extend_ftimes(&mut self, times: &Vec<Vec<f64>>) {
+        self.neurons_iter_mut().for_each(|neuron| {
+            let id = neuron.id();
+            neuron.ftimes_mut().extend(times[id].clone());
         });
     }
 
     /// The multi-channel spike train of the network.
-    fn spike_train(&self) -> MultiChannelSpikeTrain {
-        let spike_train: Vec<Vec<f64>> = self
-            .neurons_iter()
-            .map(|neuron| neuron.firing_times_ref().clone())
-            .collect();
-        MultiChannelSpikeTrain { spike_train }
+    fn spike_train_ref(&self) -> Vec<&[f64]> {
+        self.neurons_iter()
+            .map(|neuron| neuron.ftimes_ref().as_slice())
+            .collect()
     }
 
-    fn connections(&self) -> Vec<&Vec<Input>> {
+    /// The multi-channel spike train of the network.
+    fn spike_train_clone(&self) -> Vec<Vec<f64>> {
+        self.neurons_iter()
+            .map(|neuron| neuron.ftimes_ref().clone())
+            .collect()
+    }
+
+    fn connections_ref(&self) -> Vec<&Vec<Input>> {
         self.neurons_iter().map(|neuron| neuron.inputs()).collect()
     }
 
@@ -223,9 +279,11 @@ pub trait Network {
         min_delays
     }
 
+    /// Optimize the synaptic weights of the network to memorize the given spike trains.
     fn memorize_cyclic(
         &mut self,
-        spike_trains: &Vec<&MultiChannelCyclicSpikeTrain>,
+        spike_trains: &Vec<&Vec<Vec<f64>>>,
+        periods: &Vec<f64>,
         lim_weights: (f64, f64),
         max_level: f64,
         min_slope: f64,
@@ -234,92 +292,85 @@ pub trait Network {
     ) -> Result<(), SNNError> {
         if self.num_neurons() >= MIN_NEURONS_PAR {
             self.neurons_par_iter_mut().try_for_each(|neuron| {
-                log::info!("Optimizing neuron {}", neuron.id());
-                let mut time_templates: Vec<TimeTemplate> = Vec::with_capacity(spike_trains.len());
-                let mut input_spike_trains: Vec<Self::InputSpikeTrain> = Vec::with_capacity(spike_trains.len());
+                if neuron.num_inputs() > 0 {
+                    log::info!("Optimizing neuron {}", neuron.id());
+                    let mut time_templates: Vec<TimeTemplate> =
+                        Vec::with_capacity(spike_trains.len());
+                    let mut input_spike_trains: Vec<Self::InputSpikeTrain> =
+                        Vec::with_capacity(spike_trains.len());
 
-                for spike_train in spike_trains.iter() {
-                    let firing_times = spike_train.get(neuron.id()).cloned().unwrap_or_default();
-                    let time_template = TimeTemplate::new_cyclic_from(
-                        &firing_times,
-                        half_width,
-                        spike_train.period,
-                    );
-                    let input_spike_train = Self::InputSpikeTrain::new_cyclic_from(
-                        neuron.inputs(),
-                        spike_train,
-                        &time_template.interval,
-                    );
-                    time_templates.push(time_template);
-                    input_spike_trains.push(input_spike_train);
+                    for (ftimes, period) in spike_trains.iter().zip(periods.iter()) {
+                        let time_template = TimeTemplate::new_cyclic_from(
+                            &ftimes[neuron.id()],
+                            half_width,
+                            *period,
+                        );
+                        let input_spike_train = Self::InputSpikeTrain::new_cyclic_from(
+                            neuron.inputs(),
+                            *ftimes,
+                            *period,
+                            &time_template.interval,
+                        );
+                        time_templates.push(time_template);
+                        input_spike_trains.push(input_spike_train);
+                    }
+
+                    neuron.memorize(
+                        time_templates,
+                        input_spike_trains,
+                        lim_weights,
+                        max_level,
+                        min_slope,
+                        objective,
+                    )
+                } else {
+                    log::info!("Neuron {} has no synaptic weights to optimize", neuron.id());
+                    Ok(())
                 }
-
-                neuron.memorize(
-                    time_templates,
-                    input_spike_trains,
-                    lim_weights,
-                    max_level,
-                    min_slope,
-                    objective,
-                )?;
-                log::info!("Neuron {} successfully optimized", neuron.id());
-                Ok(())
             })
         } else {
             self.neurons_iter_mut().try_for_each(|neuron| {
-                log::info!("Optimizing neuron {}", neuron.id());
-                let mut time_templates: Vec<TimeTemplate> = Vec::new();
-                let mut input_spike_trains: Vec<Self::InputSpikeTrain> = Vec::new();
+                if neuron.num_inputs() > 0 {
+                    log::info!("Optimizing neuron {}", neuron.id());
+                    let mut time_templates: Vec<TimeTemplate> =
+                        Vec::with_capacity(spike_trains.len());
+                    let mut input_spike_trains: Vec<Self::InputSpikeTrain> =
+                        Vec::with_capacity(spike_trains.len());
 
-                for spike_train in spike_trains.iter() {
-                    let firing_times = spike_train.get(neuron.id()).cloned().unwrap_or(Vec::new());
-                    let time_template = TimeTemplate::new_cyclic_from(
-                        &firing_times,
-                        half_width,
-                        spike_train.period,
-                    );
-                    let input_spike_train = Self::InputSpikeTrain::new_cyclic_from(
-                        neuron.inputs(),
-                        spike_train,
-                        &time_template.interval,
-                    );
+                    for (ftimes, period) in spike_trains.iter().zip(periods.iter()) {
+                        let time_template = TimeTemplate::new_cyclic_from(
+                            &ftimes[neuron.id()],
+                            half_width,
+                            *period,
+                        );
+                        let input_spike_train = Self::InputSpikeTrain::new_cyclic_from(
+                            neuron.inputs(),
+                            *ftimes,
+                            *period,
+                            &time_template.interval,
+                        );
+                        time_templates.push(time_template);
+                        input_spike_trains.push(input_spike_train);
+                    }
 
-                    time_templates.push(time_template);
-                    input_spike_trains.push(input_spike_train);
+                    neuron.memorize(
+                        time_templates,
+                        input_spike_trains,
+                        lim_weights,
+                        max_level,
+                        min_slope,
+                        objective,
+                    )
+                } else {
+                    log::info!("Neuron {} has no synaptic weights to optimize", neuron.id());
+                    Ok(())
                 }
-
-                neuron.memorize(
-                    time_templates,
-                    input_spike_trains,
-                    lim_weights,
-                    max_level,
-                    min_slope,
-                    objective,
-                )?;
-                log::info!("Neuron {} successfully optimized", neuron.id());
-                Ok(())
             })
         }
     }
 
-    // fn memorize(
-    //     &mut self,
-    //     spike_trains: &Vec<MultiOutputSpikeTrain>,
-    //     lim_weights: (f64, f64),
-    //     max_level: f64,
-    //     min_slope: f64,
-    //     half_width: f64,
-    //     objective: Objective,
-    // ) -> Result<(), SNNError> {
-    //     todo!()
-    // }
-
-    /// Run the simulation of the network for the specified time interval.
-    fn run(
-        &mut self,
-        time_interval: &TimeInterval,
-        threshold_noise: f64,
-    ) -> Result<(), SNNError> {
+    /// Simulate the network activity on the specified time interval.
+    fn run(&mut self, time_interval: &TimeInterval, threshold_noise: f64) -> Result<(), SNNError> {
         if let TimeInterval::Closed { start, end } = time_interval {
             log::info!("Starting simulation...");
 
@@ -337,61 +388,72 @@ pub trait Network {
             // Initialize the neurons with
             // 1. The random number generators and the threshold noise
             // 2. The input spike trains
-            let spike_train = self.spike_train();
+            let network_spike_train = self.spike_train_clone();
             if self.num_neurons() > MIN_NEURONS_PAR {
                 self.neurons_par_iter_mut().for_each(|neuron| {
-                    // let new_input_spike_train =
-                    //     Self::InputSpikeTrain::new_from(neuron.inputs(), &new_spike_train);
-                    // neuron.clear_input_spike_train();
-                    // neuron.extend_input_spike_train(new_input_spike_train);
                     neuron.init_threshold_sampler(threshold_noise);
                     neuron.sample_threshold();
-                    neuron.init_input_spike_train(&spike_train);
+                    neuron.init_input_spike_train(&network_spike_train);
                 })
             } else {
                 self.neurons_iter_mut().for_each(|neuron| {
-                    // let new_input_spike_train =
-                    //     Self::InputSpikeTrain::new_from(neuron.inputs(), &new_spike_train);
-                    // neuron.clear_input_spike_train();
-                    // neuron.extend_input_spike_train(new_input_spike_train);
                     neuron.init_threshold_sampler(threshold_noise);
                     neuron.sample_threshold();
-                    neuron.init_input_spike_train(&spike_train);
+                    neuron.init_input_spike_train(&network_spike_train);
                 })
             };
-
-            // // Init the normal distribution for threshold noise
-            // let normal = Normal::new(0.0, threshold_noise).unwrap();
 
             let mut time = *start;
             while time < *end {
                 // Collect the candidate next spikes from all neurons, using parallel computation if the number of neurons is large
-                let candidate_new_spikes = if self.num_neurons() > MIN_NEURONS_PAR {
+                let mut candidate_new_times = if self.num_neurons() > MIN_NEURONS_PAR {
                     self.neurons_par_iter()
-                        .filter_map(|neuron| neuron.next_spike(time))
-                        .collect::<Vec<Spike>>()
+                        .map(|neuron| match neuron.next_spike(time) {
+                            Some(time) => (neuron.id(), Some(time)),
+                            None => (neuron.id(), None),
+                        })
+                        .collect::<Vec<(usize, Option<f64>)>>()
                 } else {
                     self.neurons_iter()
-                        .filter_map(|neuron| neuron.next_spike(time))
-                        .collect::<Vec<Spike>>()
-                };
-
-                // Accept as many spikes as possible at the current time
-                let new_spikes = candidate_new_spikes
-                    .iter()
-                    .filter(|spike| {
-                        candidate_new_spikes.iter().all(|other_spike| {
-                            spike.time
-                                <= other_spike.time
-                                    + min_delays[other_spike.neuron_id][spike.neuron_id]
+                        .map(|neuron| match neuron.next_spike(time) {
+                            Some(time) => (neuron.id(), Some(time)),
+                            None => (neuron.id(), None),
                         })
+                        .collect::<Vec<(usize, Option<f64>)>>()
+                };
+                candidate_new_times.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+                // Accept as many spikes as possible at the current time and sort the spikes by neuron ID
+                let new_times = candidate_new_times
+                    .iter()
+                    .map(|(id, time)| match time {
+                        Some(time) => {
+                            if candidate_new_times
+                                .iter()
+                                .filter_map(|(other_id, other_time)| match other_time {
+                                    Some(other_time) => Some((other_id, other_time)),
+                                    None => None,
+                                })
+                                .all(|(other_id, other_time)| {
+                                    *time <= other_time + min_delays[*other_id][*id]
+                                })
+                            {
+                                Some(*time)
+                            } else {
+                                None
+                            }
+                        }
+                        None => None,
                     })
-                    .cloned()
-                    .collect::<Vec<Spike>>();
+                    .collect::<Vec<Option<f64>>>();
 
                 // Get the lowest among all accepted spikes if any or end the simulation
-                match new_spikes.iter().min_by(|a, b| a.partial_cmp(&b).unwrap()) {
-                    Some(spike) => time = spike.time,
+                match new_times
+                    .iter()
+                    .filter_map(|x| *x)
+                    .min_by(|a, b| a.partial_cmp(&b).unwrap())
+                {
+                    Some(min_time) => time = min_time,
                     None => {
                         log::info!("Network activity has ceased...");
                         return Ok(());
@@ -399,47 +461,33 @@ pub trait Network {
                 }
 
                 // Update the neuron internal state: 1) fire the accepted spikes and 2) update the input spike trains
-                let new_spike_train = MultiChannelSpikeTrain::new_from(new_spikes);
+                // let new_spike_train = MultiChannelSpikeTrain::new_from(new_times);
                 if self.num_neurons() > MIN_NEURONS_PAR {
-                    self.neurons_par_iter_mut().try_for_each(|neuron| {
-                        new_spike_train.get(neuron.id()).map(|spikes| {
-                            spikes.iter().for_each(|spike| neuron.fire(*spike))
-                        });
-                        neuron.update_input_spikes(time, &new_spike_train)
+                    self.neurons_par_iter_mut().for_each(|neuron| {
+                        if let Some(ft) = new_times[neuron.id()] {
+                            neuron.fire(ft);
+                        }
+                        neuron.drain_input_spike_train(time);
+                        neuron.receive_spikes(&new_times);
                     })
                 } else {
-                    self.neurons_iter_mut().try_for_each(|neuron| {
-                        new_spike_train.get(neuron.id()).map(|spikes| {
-                            spikes.iter().for_each(|spike| neuron.fire(*spike))
-                        });
-                        neuron.update_input_spikes(time, &new_spike_train)
+                    self.neurons_iter_mut().for_each(|neuron| {
+                        if let Some(ft) = new_times[neuron.id()] {
+                            neuron.fire(ft);
+                        }
+                        neuron.drain_input_spike_train(time);
+                        neuron.receive_spikes(&new_times);
                     })
-                }?;
-
-
-                // // Fire the accepted spikes
-                // new_spikes.iter().for_each(|spike| {
-                //     self.neuron_mut(spike.neuron_id)
-                //         .unwrap()
-                //         .fire(spike.time, normal.sample(rng))
-                // });
-
-                // Update the input spike trains for each neuron
-                // let new_spike_train = MultiChannelSpikeTrain::new_from(new_spikes);
-
-                // for neuron in self.neurons_iter() {
-                //     let new_input_spike_train =
-                //         InputSpikeTrain::new_from(neuron.inputs_ref(), &new_spike_train);
-                //     input_spike_trains[neuron.id()]
-                //         .drain_before(time - neuron.input_kernel_support_length(MIN_CONTRIBUTION));
-                //     input_spike_trains[neuron.id()].merge_with(new_input_spike_train);
+                };
 
                 // Check if it's time to log progress
                 if time - last_log_time >= log_interval {
                     let progress = ((time - start) / total_duration) * 100.0;
                     log::debug!(
                         "Simulation progress: {:.2}% (Time: {:.2}/{:.2})",
-                        progress, time, end
+                        progress,
+                        time,
+                        end
                     );
                     last_log_time = time;
                 }
@@ -448,5 +496,71 @@ pub trait Network {
 
         log::info!("Simulation completed successfully!");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_connection() {
+        let connection = Connection::new(0, 1, 1.0, 1.0);
+        assert_eq!(connection.source_id, 0);
+        assert_eq!(connection.target_id, 1);
+        assert_eq!(connection.weight, 1.0);
+        assert_eq!(connection.delay, 1.0);
+    }
+
+    #[test]
+    fn test_connection_rand_fin() {
+        let connections = Connection::rand_fin(2, (0, 2), (0, 2), (0.0, 1.0), 0).unwrap();
+        assert_eq!(connections.len(), 4);
+        assert_eq!(connections.iter().filter(|c| c.target_id == 0).count(), 2);
+        assert_eq!(connections.iter().filter(|c| c.target_id == 1).count(), 2);
+        assert_eq!(connections.iter().filter(|c| c.target_id == 2).count(), 0);
+    }
+
+    #[test]
+    fn test_connection_rand_fout() {
+        let connections = Connection::rand_fout(2, (0, 2), (0, 2), (0.0, 1.0), 0).unwrap();
+        assert_eq!(connections.len(), 4);
+        assert_eq!(connections.iter().filter(|c| c.source_id == 0).count(), 2);
+        assert_eq!(connections.iter().filter(|c| c.source_id == 1).count(), 2);
+        assert_eq!(connections.iter().filter(|c| c.source_id == 2).count(), 0);
+    }
+
+    #[test]
+    fn test_connection_rand_fc() {
+        let connections = Connection::rand_fc((0, 2), (0.0, 1.0), 0).unwrap();
+        assert_eq!(connections.len(), 4);
+        assert_eq!(
+            connections
+                .iter()
+                .filter(|c| (c.source_id == 0) & (c.target_id == 0))
+                .count(),
+            1
+        );
+        assert_eq!(
+            connections
+                .iter()
+                .filter(|c| (c.source_id == 0) & (c.target_id == 1))
+                .count(),
+            1
+        );
+        assert_eq!(
+            connections
+                .iter()
+                .filter(|c| (c.source_id == 1) & (c.target_id == 0))
+                .count(),
+            1
+        );
+        assert_eq!(
+            connections
+                .iter()
+                .filter(|c| (c.source_id == 1) & (c.target_id == 1))
+                .count(),
+            1
+        );
     }
 }

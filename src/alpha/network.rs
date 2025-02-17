@@ -1,5 +1,4 @@
 //! Alpha network related implementations.
-use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -17,8 +16,16 @@ pub struct AlphaNetwork {
 }
 
 impl AlphaNetwork {
+    /// Create a new empty network of alpha neurons
+    pub fn new_empty(num_neurons: usize, seed: u64) -> Self {
+        let neurons = (0..num_neurons)
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
+            .collect();
+        AlphaNetwork { neurons }
+    }
+
     /// Creates a new network of alpha neurons with the provided neurons and connections.
-    fn new_from(neurons: Vec<AlphaNeuron>, connections: Vec<Connection>) -> Self {
+    pub fn new_from(neurons: Vec<AlphaNeuron>, connections: Vec<Connection>) -> Self {
         let mut network = AlphaNetwork { neurons };
         for connection in connections {
             network.add_connection(&connection);
@@ -30,16 +37,22 @@ impl AlphaNetwork {
     /// The delays are randomly generated between the specified limits.
     /// The weights are initialized to NaN.
     /// TODO: Example
-    pub fn rand_fin<R: Rng>(
+    pub fn rand_fin(
         num_neurons: usize,
         num_inputs: usize,
         lim_delays: (f64, f64),
-        rng: &mut R,
+        seed: u64,
     ) -> Result<Self, SNNError> {
         let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, rng.random()))
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
             .collect();
-        let connections = Connection::rand_fin(num_neurons, num_inputs, lim_delays, rng)?;
+        let connections = Connection::rand_fin(
+            num_inputs,
+            (0, num_neurons),
+            (0, num_neurons),
+            lim_delays,
+            seed,
+        )?;
 
         Ok(Self::new_from(neurons, connections))
     }
@@ -48,53 +61,44 @@ impl AlphaNetwork {
     /// The delays are randomly generated between the specified limits.
     /// The weights are initialized to NaN.
     /// TODO: Example
-    pub fn rand_fout<R: Rng>(
+    pub fn rand_fout(
         num_neurons: usize,
         num_outputs: usize,
         lim_delays: (f64, f64),
-        rng: &mut R,
+        seed: u64,
     ) -> Result<Self, SNNError> {
         let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, rng.random()))
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
             .collect();
-        let connections = Connection::rand_fout(num_neurons, num_outputs, lim_delays, rng)?;
-
+        let connections = Connection::rand_fout(
+            num_outputs,
+            (0, num_neurons),
+            (0, num_neurons),
+            lim_delays,
+            seed,
+        )?;
         Ok(Self::new_from(neurons, connections))
     }
 
     /// Returns a random network of alpha neurons, where each neuron has the same number of inputs and outputs.
     /// The delays are randomly generated between the specified limits.
     /// The weights are initialized to NaN.
-    pub fn rand_fin_fout<R: Rng>(
+    pub fn rand_fin_fout(
         num_neurons: usize,
         num_inputs_outputs: usize,
         lim_delays: (f64, f64),
-        rng: &mut R,
+        seed: u64,
     ) -> Result<Self, SNNError> {
         let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, rng.random()))
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
             .collect();
         let connections =
-            Connection::rand_fin_fout(num_neurons, num_inputs_outputs, lim_delays, rng)?;
+            Connection::rand_fin_fout(num_neurons, num_inputs_outputs, lim_delays, seed)?;
 
         Ok(Self::new_from(neurons, connections))
     }
 
     /// Save the network to a file.
-    ///
-    /// # Example
-    /// ```rust
-    /// use rusty_snn::network::Network;
-    /// use std::path::Path;
-    ///
-    /// let mut network = Network::new();
-    /// network.add_connection(0, 1, 1.0, 1.0).unwrap();
-    /// network.add_connection(1, 2, -1.0, 2.0).unwrap();
-    /// network.add_connection(0, 3, 1.0, 1.0).unwrap();
-    ///
-    /// // Save the network to a file
-    /// network.save_to(Path::new("alpha_network.json")).unwrap();
-    /// ```
     pub fn save_to<P: AsRef<Path>>(&self, path: P) -> Result<(), SNNError> {
         let file = File::create(path).map_err(|e| SNNError::IOError(e.to_string()))?;
         let mut writer = BufWriter::new(file);
@@ -104,19 +108,10 @@ impl AlphaNetwork {
     }
 
     /// Load a network from a file.
-    ///
-    /// # Example
-    /// ```rust
-    /// use rusty_snn::network::Network;
-    ///
-    /// // Load the network from a file
-    /// let network = Network::load_from("alpha_network.json").unwrap();
-    /// ```
     pub fn load_from<P: AsRef<Path>>(path: P) -> Result<Self, SNNError> {
         let file = File::open(path).map_err(|e| SNNError::IOError(e.to_string()))?;
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader)
-        .map_err(|e| SNNError::IOError(e.to_string()))
+        serde_json::from_reader(reader).map_err(|e| SNNError::IOError(e.to_string()))
     }
 }
 

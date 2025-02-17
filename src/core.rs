@@ -1,8 +1,9 @@
 //! Core module defining the main abstract components of the Rusty SNN library.
 pub mod neuron;
 pub mod optim;
-pub mod spikes;
+pub mod spike;
 pub mod utils;
+pub mod metrics;
 pub mod network;
 
 /// The minimum time period between spikes.

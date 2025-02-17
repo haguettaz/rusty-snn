@@ -3,25 +3,29 @@ use grb::prelude::*;
 use itertools::Itertools;
 
 use crate::core::utils::{TimeInterval, TimeIntervalUnion};
-use crate::error::SNNError;
 use crate::core::REFRACTORY_PERIOD;
+use crate::error::SNNError;
 
 /// The tolerance for a constraint to be considered as satisfied, c.f. [FeasibilityTol](https://docs.gurobi.com/projects/optimizer/en/current/reference/parameters.html#parameterfeasibilitytol)
 pub const FEASIBILITY_TOL: f64 = 1e-9;
 /// The maximum number of new constraints to be added to the model during the refinement.
 pub const MAX_NEW_CSTRS: usize = 1;
 /// The maximum number of iterations for the memorization process.
-pub const MAX_ITER: usize = 10_000;
+pub const MAX_ITER: usize = 1_000;
 
 /// The objective function for the optimization problem.
 #[derive(Clone, Copy)]
 pub enum Objective {
-    /// Uniform prior.
+    /// No regularization.
     None,
-    /// Gaussian prior, i.e., L2 norm, for low magnitude weights.
-    L2,
-    /// Laplace prior, i.e., L1 norm, for sparse weights.
+    /// 0-norm promoting sparse weights (minimize the number of non-zero weights).
+    L0,
+    /// 1-norm (Laplace) promoting sparse weights.
     L1,
+    /// 2-norm (Gauss) promoting low-magnitude weights.
+    L2,
+    /// infinity-norm promoting low-magnitude weights (minimize the largest weight magnitude).
+    LInfinity,
 }
 
 impl Objective {
@@ -29,8 +33,10 @@ impl Objective {
     pub fn from_str(s: &str) -> Result<Self, SNNError> {
         match s {
             "none" => Ok(Objective::None),
-            "l2" => Ok(Objective::L2),
+            "l0" => Ok(Objective::L0),
             "l1" => Ok(Objective::L1),
+            "l2" => Ok(Objective::L2),
+            "linf" => Ok(Objective::LInfinity),
             _ => Err(SNNError::InvalidParameters("Invalid objective".to_string())),
         }
     }
@@ -40,7 +46,7 @@ impl Objective {
 #[derive(PartialEq, Debug, Clone)]
 pub struct TimeTemplate {
     // The times at which the neuron fires.
-    pub firing_times: Vec<f64>,
+    pub ftimes: Vec<f64>,
     // The times at which the neuron is silent.
     pub silence_regions: TimeIntervalUnion,
     // The times at which the neuron is active, i.e., is about to fire.
@@ -50,18 +56,18 @@ pub struct TimeTemplate {
 }
 
 impl TimeTemplate {
-    pub fn new_from(firing_times: &Vec<f64>, half_width: f64, interval: TimeInterval) -> Self {
+    pub fn new_from(ftimes: &Vec<f64>, half_width: f64, interval: TimeInterval) -> Self {
         match interval {
             TimeInterval::Empty => TimeTemplate {
-                firing_times: vec![],
+                ftimes: vec![],
                 silence_regions: TimeIntervalUnion::Empty,
                 active_regions: TimeIntervalUnion::Empty,
                 interval: TimeInterval::Empty,
             },
             TimeInterval::Closed { start, end } => {
-                if firing_times.is_empty() {
+                if ftimes.is_empty() {
                     TimeTemplate {
-                        firing_times: vec![],
+                        ftimes: vec![],
                         silence_regions: TimeIntervalUnion::new_from(vec![interval.clone()]),
                         active_regions: TimeIntervalUnion::Empty,
                         interval: interval.clone(),
@@ -70,14 +76,14 @@ impl TimeTemplate {
                     let mut silence_regions: Vec<TimeInterval> = vec![];
 
                     let new_interval =
-                        TimeInterval::new(start, firing_times.first().unwrap() - half_width);
+                        TimeInterval::new(start, ftimes.first().unwrap() - half_width);
                     let intersect = interval.intersect(new_interval);
                     if !intersect.is_empty() {
                         silence_regions.push(intersect);
                     }
 
                     silence_regions.extend(
-                        firing_times
+                        ftimes
                             .iter()
                             .tuple_windows()
                             .filter_map(|(time, next_time)| {
@@ -94,13 +100,13 @@ impl TimeTemplate {
                     );
 
                     let new_interval =
-                        TimeInterval::new(firing_times.last().unwrap() + REFRACTORY_PERIOD, end);
+                        TimeInterval::new(ftimes.last().unwrap() + REFRACTORY_PERIOD, end);
                     let intersect = interval.intersect(new_interval);
                     if !intersect.is_empty() {
                         silence_regions.push(intersect);
                     }
 
-                    let active_regions = firing_times
+                    let active_regions = ftimes
                         .iter()
                         .filter_map(|time| {
                             let new_interval =
@@ -112,11 +118,11 @@ impl TimeTemplate {
                         })
                         .collect::<Vec<TimeInterval>>();
 
-                    let mut firing_times = firing_times.clone();
-                    firing_times.retain(|time| interval.contains(*time));
+                    let mut ftimes = ftimes.clone();
+                    ftimes.retain(|time| interval.contains(*time));
 
                     TimeTemplate {
-                        firing_times,
+                        ftimes,
                         silence_regions: TimeIntervalUnion::new_from(silence_regions),
                         active_regions: TimeIntervalUnion::new_from(active_regions),
                         interval,
@@ -127,19 +133,19 @@ impl TimeTemplate {
     }
 
     /// Create a new time template from a list of sorted firing times.
-    pub fn new_cyclic_from(firing_times: &Vec<f64>, half_width: f64, period: f64) -> Self {
-        if firing_times.is_empty() {
+    pub fn new_cyclic_from(ftimes: &[f64], half_width: f64, period: f64) -> Self {
+        if ftimes.is_empty() {
             TimeTemplate {
-                firing_times: vec![],
+                ftimes: vec![],
                 silence_regions: TimeIntervalUnion::new_from(vec![TimeInterval::new(0.0, period)]),
                 active_regions: TimeIntervalUnion::Empty,
                 interval: TimeInterval::new(0.0, period),
             }
         } else {
-            let before_first = firing_times[0] - half_width;
+            let before_first = ftimes[0] - half_width;
             let interval = TimeInterval::new(before_first, before_first + period);
 
-            let mut silence_regions = firing_times
+            let mut silence_regions = ftimes
                 .iter()
                 .tuple_windows()
                 .filter_map(|(time, next_time)| {
@@ -153,7 +159,7 @@ impl TimeTemplate {
                 .collect::<Vec<TimeInterval>>();
 
             let new_interval = TimeInterval::new(
-                firing_times.last().unwrap() + REFRACTORY_PERIOD,
+                ftimes.last().unwrap() + REFRACTORY_PERIOD,
                 before_first + period,
             );
             let intersect = interval.intersect(new_interval);
@@ -161,14 +167,13 @@ impl TimeTemplate {
                 silence_regions.push(intersect);
             }
 
-            let active_regions = firing_times
+            let active_regions = ftimes
                 .iter()
                 .map(|time| TimeInterval::new(time - half_width, time + half_width))
                 .collect::<Vec<TimeInterval>>();
 
-            let firing_times = firing_times.clone();
             TimeTemplate {
-                firing_times,
+                ftimes: ftimes.to_vec(),
                 silence_regions: TimeIntervalUnion::new_from(silence_regions),
                 active_regions: TimeIntervalUnion::new_from(active_regions),
                 interval,
@@ -219,6 +224,7 @@ pub fn set_grb_vars(
             .map(|_| add_ctsvar!(model, bounds: ..).unwrap())
             .collect::<Vec<Var>>(),
     };
+
     Ok(weights)
 }
 
@@ -229,33 +235,50 @@ pub fn set_grb_objective(
 ) -> Result<(), SNNError> {
     match objective {
         Objective::None => (),
-        Objective::L2 => {
-            let mut obj_expr = grb::expr::QuadExpr::new();
-            for &var in weights.iter() {
-                obj_expr.add_qterm(1.0, var, var);
-            }
+        Objective::L0 => {
+            let norm_var =
+                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
             model
-                .set_objective(obj_expr, ModelSense::Minimize)
-                .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-        }
+                .add_genconstr_norm("0-norm", norm_var, weights.clone(), Norm::L0)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            model
+                .set_objective(norm_var, Minimize)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+        },
         Objective::L1 => {
-            let mut obj_expr = grb::expr::LinExpr::new();
-            for (i, &var) in weights.iter().enumerate() {
-                let slack = add_ctsvar!(model).unwrap();
-                obj_expr.add_term(1.0, slack);
-                model
-                    .add_constr(format!("min_slack_{}", i).as_str(), c!(var >= -slack))
-                    .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-                model
-                    .add_constr(format!("max_slack_{}", i).as_str(), c!(var <= slack))
-                    .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-            }
+            let norm_var =
+                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
             model
-                .set_objective(obj_expr, ModelSense::Minimize)
-                .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-        }
-    };
+                .add_genconstr_norm("1-norm", norm_var, weights.clone(), Norm::L1)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            model
+                .set_objective(norm_var, Minimize)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+        },
+        Objective::L2 => {
+            let norm_var =
+                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            model
+                .add_genconstr_norm("2-norm", norm_var, weights.clone(), Norm::L2)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            model
+                .set_objective(norm_var, Minimize)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+        },
+        Objective::LInfinity => {
+            let norm_var =
+                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            model
+                .add_genconstr_norm("infinity-norm", norm_var, weights.clone(), Norm::LInfinity)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            model
+                .set_objective(norm_var, Minimize)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+        },
+    }
+
     Ok(())
+
 }
 
 #[cfg(test)]

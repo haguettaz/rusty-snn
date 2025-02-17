@@ -10,7 +10,7 @@ use std::f64::consts::E;
 
 use crate::core::neuron::MIN_INPUT_VALUE;
 use crate::core::neuron::{Input, InputSpike, InputSpikeTrain, Neuron};
-use crate::core::spikes::{MultiChannelCyclicSpikeTrain, MultiChannelSpikeTrain};
+// use crate::core::spikes::MultiChannelCyclicSpikeTrain;
 use crate::core::utils::{TimeInterval, TimeIntervalUnion, TimeValuePair};
 use crate::core::FIRING_THRESHOLD;
 use crate::error::SNNError;
@@ -27,7 +27,7 @@ pub struct AlphaNeuron {
     // The neuron firing threshold.
     threshold: f64,
     /// The neuron firing times.
-    firing_times: Vec<f64>,
+    ftimes: Vec<f64>,
     /// The input spike train.
     input_spike_train: AlphaInputSpikeTrain,
     /// The threshold noise sampler.
@@ -48,7 +48,7 @@ impl<'de> Deserialize<'de> for AlphaNeuron {
             id: usize,
             inputs: Vec<Input>,
             threshold: f64,
-            firing_times: Vec<f64>,
+            ftimes: Vec<f64>,
             input_spike_train: AlphaInputSpikeTrain,
         }
 
@@ -57,7 +57,7 @@ impl<'de> Deserialize<'de> for AlphaNeuron {
             id: data.id,
             inputs: data.inputs,
             threshold: data.threshold,
-            firing_times: data.firing_times,
+            ftimes: data.ftimes,
             input_spike_train: data.input_spike_train,
             threshold_sampler: Normal::new(FIRING_THRESHOLD, 0.0).unwrap(),
             rng: ChaCha8Rng::seed_from_u64(0),
@@ -71,7 +71,7 @@ impl AlphaNeuron {
             id,
             inputs: vec![],
             threshold: FIRING_THRESHOLD,
-            firing_times: vec![],
+            ftimes: vec![],
             input_spike_train: AlphaInputSpikeTrain::new_empty(),
             threshold_sampler: Normal::new(FIRING_THRESHOLD, 0.0).unwrap(),
             rng: ChaCha8Rng::seed_from_u64(seed),
@@ -83,7 +83,7 @@ impl AlphaNeuron {
             id,
             inputs,
             threshold,
-            firing_times: vec![],
+            ftimes: vec![],
             input_spike_train: AlphaInputSpikeTrain::new_empty(),
             threshold_sampler: Normal::new(FIRING_THRESHOLD, 0.0).unwrap(),
             rng: ChaCha8Rng::seed_from_u64(seed),
@@ -111,16 +111,12 @@ impl Neuron for AlphaNeuron {
         self.threshold = self.threshold_sampler.sample(&mut self.rng);
     }
 
-    // fn set_threshold(&mut self, threshold: f64) {
-    //     self.threshold = threshold;
-    // }
-
-    fn firing_times_ref(&self) -> &Vec<f64> {
-        self.firing_times.as_ref()
+    fn ftimes_ref(&self) -> &Vec<f64> {
+        self.ftimes.as_ref()
     }
 
-    fn firing_times_mut(&mut self) -> &mut Vec<f64> {
-        self.firing_times.as_mut()
+    fn ftimes_mut(&mut self) -> &mut Vec<f64> {
+        self.ftimes.as_mut()
     }
 
     /// A reference to the vector of inputs of the neuron
@@ -163,41 +159,35 @@ impl Neuron for AlphaNeuron {
         &mut self.input_spike_train
     }
 
-    // fn clear_input_spike_train(&mut self) {
-    //     self.input_spike_train = AlphaInputSpikeTrain::new_empty();
-    // }
-
-    // fn extend_input_spike_train(&mut self, new_input_spike_train: Self::InputSpikeTrain) {
-    //     self.input_spike_train.merge(new_input_spike_train);
-    // }
-
-    /// Initialize the input spikes of the neuron from the provided spike train.
-    fn init_input_spike_train(&mut self, spike_train: &MultiChannelSpikeTrain) {
-        self.input_spike_train = Self::InputSpikeTrain::new_from(self.inputs(), spike_train);
+    fn clear_inputs(&mut self) {
+        self.inputs.clear();
     }
 
-    /// Update the input spikes of the neuron from the provided spike train.
-    /// The input spikes are updated by removing all input spikes which are irrelevant from the provided time.
-    /// Raise an error if the provided time is smaller than any of the input spikes, in which case, merge is meaningless.
-    fn update_input_spikes(
-        &mut self,
-        time: f64,
-        spike_train: &MultiChannelSpikeTrain,
-    ) -> Result<(), SNNError> {
-        if spike_train
-            .iter()
-            .flat_map(|times| times.iter())
-            .any(|&t| t < time)
-        {
-            return Err(SNNError::InvalidParameters(
-                "Time must be smaller than any provided spikes.".to_string(),
-            ));
-        }
+    /// Initialize the input spikes of the neuron from the provided spike train.
+    fn init_input_spike_train(&mut self, times: &Vec<Vec<f64>>) {
+        self.input_spike_train = Self::InputSpikeTrain::new_from(self.inputs(), times);
+    }
+
+    /// Drain the input spikes which are irrelevant after the provided time.
+    fn drain_input_spike_train(&mut self, time: f64) {
         let pos = self.input_spike_train.find_before(time).unwrap_or(0);
         self.input_spike_train.input_spikes.drain(..pos);
-        let new_input_spike_train = Self::InputSpikeTrain::new_from(self.inputs(), spike_train);
-        self.input_spike_train.merge(new_input_spike_train);
-        Ok(())
+    }
+
+    /// Receive and process the spikes from the input channels.
+    /// The spikes are provided as a vector of optional firing times.
+    /// There is at most one spike per channel.
+    fn receive_spikes(&mut self, ftimes: &Vec<Option<f64>>) {
+        let mut new_input_spikes: Vec<AlphaInputSpike> = self
+            .inputs_iter()
+            .filter_map(|input| {
+                ftimes[input.source_id].map(|ft| {
+                    Self::InputSpike::new(input.source_id, ft + input.delay, input.weight)
+                })
+            })
+            .collect();
+        new_input_spikes.sort_by(|s1, s2| s1.partial_cmp(s2).unwrap());
+        self.input_spike_train.insert_sorted(new_input_spikes);
     }
 }
 
@@ -208,7 +198,7 @@ pub struct AlphaInputSpike {
     pub input_id: usize,
     /// The time at which the spike is received.
     pub time: f64,
-    /// The weight of the synapse along which the spike is received.
+    /// The weight of the connection along which is the spike is received.
     pub weight: f64,
     /// The coefficient sum_{j <= i} w_j * exp(1-(s_i - s_j))
     pub a: f64,
@@ -216,12 +206,14 @@ pub struct AlphaInputSpike {
     pub b: f64,
 }
 
+/// Implement the `PartialEq` trait for `AlphaInputSpike` based on the time and input_id.
 impl PartialEq for AlphaInputSpike {
     fn eq(&self, other: &Self) -> bool {
-        self.time == other.time && self.weight == other.weight && self.input_id == other.input_id
+        self.time == other.time && self.input_id == other.input_id
     }
 }
 
+/// Implement the `PartialOrd` trait for `AlphaInputSpike` to allow sorting by time.
 impl PartialOrd for AlphaInputSpike {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.time.partial_cmp(&other.time)
@@ -229,6 +221,7 @@ impl PartialOrd for AlphaInputSpike {
 }
 
 impl InputSpike for AlphaInputSpike {
+    /// A new input spike through an alpha-shaped synapse.
     fn new(input_id: usize, time: f64, weight: f64) -> Self {
         AlphaInputSpike {
             input_id,
@@ -239,18 +232,22 @@ impl InputSpike for AlphaInputSpike {
         }
     }
 
+    /// The time at which the input spike is received.
     fn time(&self) -> f64 {
         self.time
     }
 
+    /// The weight of the connection along which the spike is received.
     fn weight(&self) -> f64 {
         self.weight
     }
 
+    /// The ID of the input along which the spike is received.
     fn input_id(&self) -> usize {
         self.input_id
     }
 
+    /// The alpha-shaped kernel.
     fn kernel(&self, dt: f64) -> f64 {
         if dt > 0.0 {
             dt * (1.0 - dt).exp()
@@ -259,6 +256,7 @@ impl InputSpike for AlphaInputSpike {
         }
     }
 
+    /// The derivative of the alpha-shaped kernel.
     fn kernel_deriv(&self, dt: f64) -> f64 {
         if dt > 0.0 {
             (1.0 - dt) * (1.0 - dt).exp()
@@ -276,7 +274,7 @@ pub struct AlphaInputSpikeTrain {
 }
 
 impl AlphaInputSpikeTrain {
-    /// Returns a new input spike train.
+    /// A new input spike train.
     pub fn new(mut input_spikes: Vec<AlphaInputSpike>) -> Self {
         if !input_spikes.is_empty() {
             input_spikes.sort_by(|input_spike_1, input_spike_2| {
@@ -298,8 +296,7 @@ impl AlphaInputSpikeTrain {
         AlphaInputSpikeTrain { input_spikes }
     }
 
-    /// Find the position of the last input_spike (strictly) before time, if any.
-    /// Otherwise, return None.
+    /// Find the position of the last input spike (strictly) before time, if any.
     pub fn find_before(&self, time: f64) -> Option<usize> {
         match self
             .input_spikes
@@ -329,67 +326,32 @@ impl AlphaInputSpikeTrain {
             }
         }
     }
-
-    fn is_empty(&self) -> bool {
-        self.input_spikes.is_empty()
-    }
-
-    // fn is_sorted(&self) -> bool {
-    //     self.input_spikes
-    //         .iter()
-    //         .tuple_windows()
-    //         .all(|(input_spike_1, input_spike_2)| input_spike_1 <= input_spike_2)
-    // }
 }
 
 impl InputSpikeTrain for AlphaInputSpikeTrain {
     /// An input spike through an alpha-shaped synapse.
     type InputSpike = AlphaInputSpike;
 
-    /// Returns a new empty input spike train.
+    /// A new empty input spike train.
     fn new_empty() -> Self {
         AlphaInputSpikeTrain {
             input_spikes: vec![],
         }
     }
 
-    /// Returns a new input spike train from the provided inputs and spike train.
-    fn new_from(inputs: &Vec<Input>, spike_train: &MultiChannelSpikeTrain) -> Self {
+    /// A new input spike train from a collection of inputs and firing times.
+    fn new_from(inputs: &Vec<Input>, ftimes: &Vec<Vec<f64>>) -> Self {
         let mut input_spikes: Vec<Self::InputSpike> = inputs
             .iter()
             .enumerate()
-            .filter_map(|(input_id, input)| {
-                spike_train
-                    .get(input.source_id)
-                    .map(|times| (input_id, input, times))
-            })
-            .flat_map(|(input_id, input, times)| {
-                times.iter().map(move |time| {
-                    AlphaInputSpike::new(input_id, *time + input.delay, input.weight)
-                })
+            .flat_map(|(i, input)| {
+                ftimes[input.source_id]
+                    .iter()
+                    .map(move |ft| AlphaInputSpike::new(i, ft + input.delay, input.weight))
             })
             .collect();
-        // {
-        //     Ok(output_spikes_iter) => output_spikes_iter.map(|time| AlphaInputSpike::new(input.input_id, time + input.delay, input.weight)),
-        //     Err(_) => iter::empty(),
-        // }
 
-        // spike_train
-        //     .spikes
-        //     .iter()
-        //     .flat_map(|spike| {
-        //         inputs
-        //             .iter()
-        //             .filter(|input| input.source_id == spike.source_id)
-        //             .map(|input| {
-        //                 AlphaInputSpike::new(input.input_id, spike.time + input.delay, input.weight)
-        //             })
-        //     })
-        //     .collect();
-
-        input_spikes.sort_by(|input_spike_1, input_spike_2| {
-            input_spike_1.partial_cmp(&input_spike_2).unwrap()
-        });
+        input_spikes.sort_by(|s1, s2| s1.partial_cmp(&s2).unwrap());
 
         for i in 1..input_spikes.len() {
             input_spikes[i].a = input_spikes[i - 1].a
@@ -403,10 +365,12 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         AlphaInputSpikeTrain { input_spikes }
     }
 
-    /// Returns a new input spike train from the provided inputs and cyclic spike train.
+    /// A new input spike train from a collection of inputs and (cyclic) firing times.
+    /// The firing times are periodically repeated until being negligeable on the provided interval.
     fn new_cyclic_from(
         inputs: &Vec<Input>,
-        spike_train: &MultiChannelCyclicSpikeTrain,
+        ftimes: &Vec<Vec<f64>>,
+        period: f64,
         interval: &TimeInterval,
     ) -> Self {
         match interval {
@@ -418,22 +382,16 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                 let mut input_spikes: Vec<Self::InputSpike> = inputs
                     .iter()
                     .enumerate()
-                    .filter_map(|(input_id, input)| {
-                        spike_train
-                            .get(input.source_id)
-                            .map(|times| (input_id, input, times))
-                    })
-                    .flat_map(|(input_id, input, times)| {
-                        times
+                    .flat_map(|(input_id, input)| {
+                        ftimes[input.source_id]
                             .iter()
                             .map(|time| {
                                 let time = time + input.delay;
-                                time - ((time - end) / spike_train.period).ceil()
-                                    * spike_train.period
+                                time - ((time - end) / period).ceil() * period
                             })
                             .flat_map(move |time| {
                                 (0..).map_while(move |i| {
-                                    let input_time = time - i as f64 * spike_train.period;
+                                    let input_time = time - i as f64 * period;
                                     if input_time >= min_time {
                                         Some(AlphaInputSpike::new(
                                             input_id,
@@ -466,19 +424,8 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         }
     }
 
-    /// Update the input spike train from the provided inputs.
-    /// Sort inputs by source_id?
-    fn update_from(&mut self, inputs: &Vec<Input>) -> Result<(), SNNError> {
-        // for input_spike in self.input_spikes.iter_mut() {
-        //     if let Some(input) = inputs
-        //         .iter()
-        //         .find(|(input_id, input)| *input_id == input_spike.input_id)
-        //     {
-        //         input_spike.weight = input.weight;
-        //         input_spike.a = input_spike.weight * E;
-        //         input_spike.b = input_spike.weight * input_spike.time * E;
-        //     }
-        // }
+    /// Update the input spikes after a change in the input weights.
+    fn apply_weight_change(&mut self, inputs: &Vec<Input>) -> Result<(), SNNError> {
         self.input_spikes.iter_mut().try_for_each(|input_spike| {
             let input = inputs
                 .get(input_spike.input_id)
@@ -503,36 +450,56 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         Ok(())
     }
 
-    /// Insert a new input spike while preserving the order, and return the insertion index.
-    /// If there are multiple input spikes at the same time, the new input spike is inserted after them.
-    fn insert(&mut self, new_input_spike: Self::InputSpike) -> usize {
-        let pos = match self.input_spikes.binary_search_by(|input_spike| {
-            input_spike.time.partial_cmp(&new_input_spike.time).unwrap()
-        }) {
-            Ok(pos) => self.input_spikes[pos..]
+    /// Insert a collection of (sorted) input spikes into the neuron's input spike train while preserving the order.
+    fn insert_sorted(&mut self, new_input_spikes: Vec<Self::InputSpike>) {
+        if !new_input_spikes.is_empty() {
+            // Collect the insertion indices of all new input spikes and keep track of the first insertion index
+            let indices: Vec<usize> = new_input_spikes
                 .iter()
                 .enumerate()
-                .take_while(|(_, spike)| spike.time == new_input_spike.time)
-                .map(|(i, _)| pos + i + 1)
-                .last()
-                .unwrap(),
-            Err(pos) => pos,
-        };
+                .map(|(offset, new_input_spike)| {
+                    match self.input_spikes.binary_search_by(|input_spike| {
+                        input_spike.time.partial_cmp(&new_input_spike.time).unwrap()
+                    }) {
+                        Ok(pos) => {
+                            self.input_spikes[pos..]
+                                .iter()
+                                .enumerate()
+                                .take_while(|(_, input_spike)| {
+                                    input_spike.time == new_input_spike.time
+                                })
+                                .map(|(i, _)| pos + i + 1)
+                                .last()
+                                .unwrap()
+                                + offset
+                        }
+                        Err(pos) => pos + offset,
+                    }
+                })
+                .collect();
+            let mut first_insert = *indices.first().unwrap();
 
-        self.input_spikes.insert(pos, new_input_spike);
-        pos
-    }
+            // Create space at the end of the input spikes vector
+            self.input_spikes.extend(
+                std::iter::repeat(AlphaInputSpike::new(0, 0.0, f64::NAN))
+                    .take(new_input_spikes.len()),
+            );
 
-    /// Merge input spikes to the existing ones.
-    fn merge(&mut self, input_spike_train: Self) {
-        if !input_spike_train.is_empty() {
-            // Insert the new input spikes and collect the insertion indices.
-            let mut first_insert: usize = input_spike_train
-                .input_spikes
-                .into_iter()
-                .map(|input_spike| self.insert(input_spike))
-                .min()
-                .unwrap();
+            std::iter::once(self.input_spikes.len())
+                .chain(indices.into_iter().rev())
+                .tuple_windows()
+                .zip(new_input_spikes.into_iter().enumerate().rev())
+                .for_each(|((next_pos, pos), (offset, new_input_spike))| {
+                    (pos + 1..next_pos).rev().for_each(|i| {
+                        self.input_spikes[i].input_id = self.input_spikes[i - offset - 1].input_id;
+                        self.input_spikes[i].time = self.input_spikes[i - offset - 1].time;
+                        self.input_spikes[i].weight = self.input_spikes[i - offset - 1].weight;
+                    });
+
+                    self.input_spikes[pos].input_id = new_input_spike.input_id;
+                    self.input_spikes[pos].time = new_input_spike.time;
+                    self.input_spikes[pos].weight = new_input_spike.weight;
+                });
 
             // Initialize the coefficients a and b of the first new input_spike, if it is the new first input spike of the train.
             if first_insert == 0 {
@@ -544,24 +511,24 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
 
             // Update the coefficients a and b of the input spikes.
             // Note that the input spikes before the first new input spike do not need to be updated.
-            for id in first_insert..self.input_spikes.len() {
-                self.input_spikes[id].a = self.input_spikes[id - 1].a
-                    * (self.input_spikes[id - 1].time - self.input_spikes[id].time).exp()
-                    + self.input_spikes[id].weight * E;
-                self.input_spikes[id].b = self.input_spikes[id - 1].b
-                    * (self.input_spikes[id - 1].time - self.input_spikes[id].time).exp()
-                    + self.input_spikes[id].weight * self.input_spikes[id].time * E;
-            }
+            (first_insert..self.input_spikes.len()).for_each(|i| {
+                self.input_spikes[i].a = self.input_spikes[i - 1].a
+                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
+                    + self.input_spikes[i].weight * E;
+                self.input_spikes[i].b = self.input_spikes[i - 1].b
+                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
+                    + self.input_spikes[i].weight * self.input_spikes[i].time * E;
+            });
         }
     }
 
     /// An iterator over the input spikes.
-    fn input_spikes_iter(&self) -> impl Iterator<Item = &Self::InputSpike> + '_ {
+    fn iter(&self) -> impl Iterator<Item = &Self::InputSpike> + '_ {
         self.input_spikes.iter()
     }
 
     /// A mutable iterator over the input spikes.
-    fn input_spikes_iter_mut(&mut self) -> impl Iterator<Item = &mut Self::InputSpike> + '_ {
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Self::InputSpike> + '_ {
         self.input_spikes.iter_mut()
     }
 
@@ -613,87 +580,6 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                 pairs.push(TimeValuePair { time, value });
             }
         });
-
-        // self.input_spikes
-        //     .iter()
-        //     .map(Some)
-        //     .chain(std::iter::once(None))
-        //     .tuple_windows()
-        //     .for_each(|(input_spike, next_input_spike)| {
-        //         let input_spike = input_spike.unwrap();
-        //         if windows.contains(input_spike.time) {
-        //             let time = input_spike.time;
-        //             let value = input_spike.time * input_spike.a - input_spike.b;
-        //             pairs.push(TimeValuePair { time, value });
-        //         }
-
-        //         // On the continuous part, the potential is maximized if the second derivative is negative.
-        //         if input_spike.a > 0.0 {
-        //             let time = 1.0 + input_spike.b / input_spike.a;
-        //             let value =
-        //                 (time * input_spike.a - input_spike.b) * (input_spike.time - time).exp();
-        //             match next_input_spike {
-        //                 Some(next_input_spike) => {
-        //                     if time >= input_spike.time
-        //                         && time <= next_input_spike.time
-        //                         && windows.contains(time)
-        //                     {
-        //                         pairs.push(TimeValuePair { time, value });
-        //                     }
-        //                 }
-        //                 None => {
-        //                     if time >= input_spike.time && windows.contains(time) {
-        //                         pairs.push(TimeValuePair { time, value });
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     });
-
-        //     if (input_spike.time - 1.0) * input_spike.a >= input_spike.b {
-        //         let time = input_spike.time;
-        //         let value = input_spike.time * input_spike.a - input_spike.b;
-        //         if windows.contains(time) {
-        //             Some(TimeValuePair { time, value })
-        //         } else {
-        //             None
-        //         }
-        //     } else {
-        //         if input_spike.a < 0.0 {
-        //             None
-        //         } else if input_spike.a == 0.0 && input_spike.b == 0.0 {
-        //             let time = input_spike.time;
-        //             let value = 0.0;
-        //             if time >= input_spike.time && windows.contains(time) {
-        //                 Some(TimeValuePair { time, value })
-        //             } else {
-        //                 None
-        //             }
-        //         } else {
-        //             let time = 1.0 + input_spike.b / input_spike.a;
-        //             let value = input_spike.a * (input_spike.time - time).exp();
-        //             match next_input_spike {
-        //                 Some(next_input_spike) => {
-        //                     if time >= input_spike.time
-        //                         && time <= next_input_spike.time
-        //                         && windows.contains(time)
-        //                     {
-        //                         Some(TimeValuePair { time, value })
-        //                     } else {
-        //                         None
-        //                     }
-        //                 }
-        //                 None => {
-        //                     if time >= input_spike.time && windows.contains(time) {
-        //                         Some(TimeValuePair { time, value })
-        //                     } else {
-        //                         None
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // })
 
         // Add the windows's borders to the list of potential maximizers.
         for window in windows.iter() {
@@ -868,7 +754,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         }
     }
 
-    /// Compute the potential at the provided time.
+    /// Evaluate the potential at a given time.
     fn potential(&self, time: f64) -> f64 {
         match self.find_before(time) {
             Some(pos) => {
@@ -879,7 +765,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         }
     }
 
-    /// Compute the potential derivative at the provided time.
+    /// Evaluate the derivative of the potential at a given time.
     fn potential_deriv(&self, time: f64) -> f64 {
         match self.find_before(time) {
             Some(pos) => {
@@ -897,15 +783,7 @@ mod tests {
     use core::{f64, panic};
 
     use super::*;
-    use crate::core::{
-        optim::{Objective, TimeTemplate},
-        spikes::{MultiChannelCyclicSpikeTrain, Spike},
-    };
-
-    #[test]
-    fn test_input_spike_train_new_from() {
-        todo!();
-    }
+    use crate::core::optim::{Objective, TimeTemplate};
 
     #[test]
     fn test_input_spike_train_new_cyclic_from() {
@@ -915,15 +793,12 @@ mod tests {
             Input::new(2, 1.0, 0.5),
             Input::new(1, -0.5, 2.0),
         ];
-
-        let spike_train = MultiChannelCyclicSpikeTrain {
-            spike_train: vec![vec![0.0, 22.0], vec![10.0, 47.0], vec![34.5, 98.5]],
-            period: 100.0,
-        };
+        let ftimes = vec![vec![0.0, 22.0], vec![10.0, 47.0], vec![34.5, 98.5]];
+        let period = 100.0;
         let interval = TimeInterval::new(3.0, 103.0);
 
         let input_spike_train =
-            AlphaInputSpikeTrain::new_cyclic_from(&inputs, &spike_train, &interval);
+            AlphaInputSpikeTrain::new_cyclic_from(&inputs, &ftimes, period, &interval);
 
         assert_relative_eq!(input_spike_train.input_spikes[0].time, -1.0);
         assert_relative_eq!(input_spike_train.input_spikes[1].time, 1.0);
@@ -961,46 +836,122 @@ mod tests {
     }
 
     #[test]
-    fn test_input_spike_train_merge() {
-        let mut input_spike_train = AlphaInputSpikeTrain::new_empty();
-
-        let new_input_spike_train = AlphaInputSpikeTrain::new(vec![
-            AlphaInputSpike::new(0, 1.0, 0.5),
-            AlphaInputSpike::new(0, 2.0, 0.5),
+    fn test_input_spike_train_insert_sorted() {
+        let mut input_spike_train = AlphaInputSpikeTrain::new(vec![]);
+        input_spike_train.insert_sorted(vec![
+            AlphaInputSpike::new(0, 3.0, 1.0),
+            AlphaInputSpike::new(0, 5.0, 1.0),
+            AlphaInputSpike::new(0, 7.0, 1.0),
         ]);
-        input_spike_train.merge(new_input_spike_train);
-        assert_relative_eq!(input_spike_train.input_spikes[0].a, 1.3591409142295225);
-        assert_relative_eq!(input_spike_train.input_spikes[0].b, 1.3591409142295225);
-        assert_relative_eq!(input_spike_train.input_spikes[1].a, 1.8591409142295225);
-        assert_relative_eq!(input_spike_train.input_spikes[1].b, 3.218281828459045);
+        assert_relative_eq!(input_spike_train.input_spikes[0].time, 3.0);
+        assert_relative_eq!(input_spike_train.input_spikes[1].time, 5.0);
+        assert_relative_eq!(input_spike_train.input_spikes[2].time, 7.0);
+        assert_relative_eq!(
+            input_spike_train.input_spikes[1].a,
+            input_spike_train.input_spikes[..=1]
+                .iter()
+                .map(|input_spike| input_spike.weight * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
+        assert_relative_eq!(
+            input_spike_train.input_spikes[1].b,
+            input_spike_train.input_spikes[..=1]
+                .iter()
+                .map(|input_spike| input_spike.weight
+                    * input_spike.time
+                    * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
 
-        let new_input_spike_train = AlphaInputSpikeTrain::new(vec![
-            AlphaInputSpike::new(0, 1.5, -0.25),
-            AlphaInputSpike::new(0, 0.0, 0.75),
+        let mut input_spike_train = AlphaInputSpikeTrain::new(vec![
+            AlphaInputSpike::new(0, 3.0, 1.0),
+            AlphaInputSpike::new(0, 5.0, 1.0),
+            AlphaInputSpike::new(0, 7.0, 1.0),
         ]);
-        input_spike_train.merge(new_input_spike_train);
-        assert_relative_eq!(input_spike_train.input_spikes[0].a, 2.038711371344284);
-        assert_relative_eq!(input_spike_train.input_spikes[0].b, 0.0);
-        assert_relative_eq!(input_spike_train.input_spikes[1].a, 2.1091409142295223);
-        assert_relative_eq!(input_spike_train.input_spikes[1].b, 1.3591409142295225);
-        assert_relative_eq!(input_spike_train.input_spikes[2].a, 0.5996881730197777);
-        assert_relative_eq!(input_spike_train.input_spikes[2].b, -0.19499505032207798);
-        assert_relative_eq!(input_spike_train.input_spikes[3].a, 1.7228701774330721);
-        assert_relative_eq!(input_spike_train.input_spikes[3].b, 2.600011351946497);
+        input_spike_train.insert_sorted(vec![]);
+        assert_relative_eq!(input_spike_train.input_spikes[0].time, 3.0);
+        assert_relative_eq!(input_spike_train.input_spikes[1].time, 5.0);
+        assert_relative_eq!(input_spike_train.input_spikes[2].time, 7.0);
+        assert_relative_eq!(
+            input_spike_train.input_spikes[1].a,
+            input_spike_train.input_spikes[..=1]
+                .iter()
+                .map(|input_spike| input_spike.weight * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
+        assert_relative_eq!(
+            input_spike_train.input_spikes[1].b,
+            input_spike_train.input_spikes[..=1]
+                .iter()
+                .map(|input_spike| input_spike.weight
+                    * input_spike.time
+                    * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
 
-        let new_input_spike_train =
-            AlphaInputSpikeTrain::new(vec![AlphaInputSpike::new(0, 1.75, -0.5)]);
-        input_spike_train.merge(new_input_spike_train);
-        assert_relative_eq!(input_spike_train.input_spikes[0].a, 2.038711371344284);
-        assert_relative_eq!(input_spike_train.input_spikes[0].b, 0.0);
-        assert_relative_eq!(input_spike_train.input_spikes[1].a, 2.1091409142295223);
-        assert_relative_eq!(input_spike_train.input_spikes[1].b, 1.3591409142295225);
-        assert_relative_eq!(input_spike_train.input_spikes[2].a, 0.5996881730197777);
-        assert_relative_eq!(input_spike_train.input_spikes[2].b, -0.19499505032207798);
-        assert_relative_eq!(input_spike_train.input_spikes[3].a, -0.8921032954830594);
-        assert_relative_eq!(input_spike_train.input_spikes[3].b, -2.5303588977875466);
-        assert_relative_eq!(input_spike_train.input_spikes[4].a, 0.664370169126735);
-        assert_relative_eq!(input_spike_train.input_spikes[4].b, 0.7476363374104069);
+        let mut input_spike_train = AlphaInputSpikeTrain::new(vec![
+            AlphaInputSpike::new(0, 1.0, 1.0),
+            AlphaInputSpike::new(0, 5.0, 1.0),
+            AlphaInputSpike::new(0, 9.0, 1.0),
+        ]);
+        input_spike_train.insert_sorted(vec![
+            AlphaInputSpike::new(0, 3.0, 1.0),
+            AlphaInputSpike::new(0, 7.0, 1.0),
+        ]);
+        assert_relative_eq!(input_spike_train.input_spikes[0].time, 1.0);
+        assert_relative_eq!(input_spike_train.input_spikes[1].time, 3.0);
+        assert_relative_eq!(input_spike_train.input_spikes[2].time, 5.0);
+        assert_relative_eq!(input_spike_train.input_spikes[3].time, 7.0);
+        assert_relative_eq!(input_spike_train.input_spikes[4].time, 9.0);
+        assert_relative_eq!(
+            input_spike_train.input_spikes[2].a,
+            input_spike_train.input_spikes[..=2]
+                .iter()
+                .map(|input_spike| input_spike.weight * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
+        assert_relative_eq!(
+            input_spike_train.input_spikes[2].b,
+            input_spike_train.input_spikes[..=2]
+                .iter()
+                .map(|input_spike| input_spike.weight
+                    * input_spike.time
+                    * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
+
+        let mut input_spike_train = AlphaInputSpikeTrain::new(vec![
+            AlphaInputSpike::new(0, 1.0, 1.0),
+            AlphaInputSpike::new(0, 5.0, 1.0),
+            AlphaInputSpike::new(0, 9.0, 1.0),
+        ]);
+        input_spike_train.insert_sorted(vec![
+            AlphaInputSpike::new(0, 2.0, 1.0),
+            AlphaInputSpike::new(0, 3.0, 1.0),
+            AlphaInputSpike::new(0, 11.0, 1.0),
+        ]);
+        assert_relative_eq!(input_spike_train.input_spikes[0].time, 1.0);
+        assert_relative_eq!(input_spike_train.input_spikes[1].time, 2.0);
+        assert_relative_eq!(input_spike_train.input_spikes[2].time, 3.0);
+        assert_relative_eq!(input_spike_train.input_spikes[3].time, 5.0);
+        assert_relative_eq!(input_spike_train.input_spikes[4].time, 9.0);
+        assert_relative_eq!(input_spike_train.input_spikes[5].time, 11.0);
+        assert_relative_eq!(
+            input_spike_train.input_spikes[3].a,
+            input_spike_train.input_spikes[..=3]
+                .iter()
+                .map(|input_spike| input_spike.weight * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
+        assert_relative_eq!(
+            input_spike_train.input_spikes[3].b,
+            input_spike_train.input_spikes[..=3]
+                .iter()
+                .map(|input_spike| input_spike.weight
+                    * input_spike.time
+                    * (1.0 - (5.0 - input_spike.time)).exp())
+                .sum::<f64>()
+        );
     }
 
     #[test]
@@ -1226,416 +1177,56 @@ mod tests {
     }
 
     #[test]
-    fn test_neuron_potential() {
-        // let neuron = AlphaNeuron::new_from(0);
-        todo!();
-    }
+    fn test_memorize_single_spike_periodic_spike_train_l1() {
+        let mut neuron = AlphaNeuron::new_empty(0, 0);
+        neuron.add_input(0, f64::NAN, 0.0);
+        neuron.add_input(1, f64::NAN, 0.0);
+        neuron.add_input(2, f64::NAN, 0.0);
+        neuron.add_input(3, f64::NAN, 0.0);
+        neuron.add_input(4, f64::NAN, 0.0);
 
-    #[test]
-    fn test_neuron_potential_deriv() {
-        // let neuron = AlphaNeuron::new_from(0);
-        todo!();
-    }
+        let time_template = TimeTemplate::new_cyclic_from(&vec![1.55], 0.25, 100.0);
 
-    //     // assert_eq!(
-    //     //     neuron.saddle_potential_in_windows(&input_spike_train, (8.0, 1.0)),
-    //     // );
-    //     // assert_eq!(
-    //     //     neuron.max_potential_in_window(&input_spike_train, (3.0, 2.0)),
-    //     //     None
-    //     // );
-
-    //     // Without any input spike
-    //     let neuron = AlphaNeuron::new_empty(0);
-    //     let spike_train = LoopSpikeTrain::new_empty(10.0);
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (0.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 0.0);
-    //     assert_relative_eq!(zmax, 0.0);
-
-    //     // With a single input spike
-    //     let inputs = vec![Input {
-    //         source_id: 0,
-    //         weight: 1.0,
-    //         delay: 1.0,
-    //     }];
-    //     let neuron = AlphaNeuron::new_with_inputs(42, inputs);
-    //     let spikes = vec![Spike {
-    //         source_id: 0,
-    //         time: 0.0,
-    //     }];
-    //     let spike_train = LoopSpikeTrain::build(spikes, 10.0).unwrap();
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (0.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 2.0);
-    //     assert_relative_eq!(zmax, 1.0);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (2.5, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 2.5);
-    //     assert_relative_eq!(zmax, 0.9097959895689501);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (70.0, 80.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 72.0);
-    //     assert_relative_eq!(zmax, 1.0);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (1.25, 2.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 2.0);
-    //     assert_relative_eq!(zmax, 1.0);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (2.0, 3.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 2.0);
-    //     assert_relative_eq!(zmax, 1.0);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (1.0, 3.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 2.0);
-    //     assert_relative_eq!(zmax, 1.0);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (0.0, 1.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 0.0);
-    //     assert_relative_eq!(zmax, 0.003019163651122607);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (8.0, 11.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 8.0);
-    //     assert_relative_eq!(zmax, 0.01735126523666451);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (8.0, 12.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 12.0);
-    //     assert_relative_eq!(zmax, 1.0);
-
-    //     // With multiple input spikes
-    //     let inputs = vec![
-    //         Input {
-    //             source_id: 0,
-    //             weight: 1.0,
-    //             delay: 1.0,
-    //         },
-    //         Input {
-    //             source_id: 1,
-    //             weight: 1.0,
-    //             delay: 2.5,
-    //         },
-    //         Input {
-    //             source_id: 2,
-    //             weight: 1.0,
-    //             delay: 4.0,
-    //         },
-    //         Input {
-    //             source_id: 3,
-    //             weight: -1.0,
-    //             delay: 3.5,
-    //         },
-    //     ];
-    //     let neuron = AlphaNeuron::new_with_inputs(42, inputs);
-    //     let spikes = vec![
-    //         Spike {
-    //             source_id: 0,
-    //             time: 0.0,
-    //         },
-    //         Spike {
-    //             source_id: 1,
-    //             time: 0.0,
-    //         },
-    //         Spike {
-    //             source_id: 2,
-    //             time: 0.0,
-    //         },
-    //         Spike {
-    //             source_id: 3,
-    //             time: 0.0,
-    //         },
-    //     ];
-    //     let spike_train = LoopSpikeTrain::build(spikes, 10.0).unwrap();
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (0.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 3.225873747625197);
-    //     assert_relative_eq!(zmax, 1.6089873115477644);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (2.0, 4.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 3.225873747625197);
-    //     assert_relative_eq!(zmax, 1.6089873115477644);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (3.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 3.225873747625197);
-    //     assert_relative_eq!(zmax, 1.6089873115477644);
-
-    //     let (tmax, zmax) = neuron
-    //         .max_potential_in_window(&input_spike_train, (5.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmax, 5.0);
-    //     assert_relative_eq!(zmax, 0.8471776842735802);
-    // }
-
-    // #[test]
-    // fn test_neuron_min_potential_deriv_in_window() {
-    //     // Empty window
-    //     let neuron = AlphaNeuron::new_empty(0);
-    //     let spike_train = LoopSpikeTrain::new_empty(10.0);
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-    //     assert_eq!(
-    //         neuron.min_potential_deriv_in_window(&input_spike_train, (8.0, 1.0)),
-    //         None
-    //     );
-    //     assert_eq!(
-    //         neuron.min_potential_deriv_in_window(&input_spike_train, (3.0, 2.0)),
-    //         None
-    //     );
-
-    //     // Without any input spike
-    //     let neuron = AlphaNeuron::new_empty(0);
-    //     let spike_train = LoopSpikeTrain::new_empty(10.0);
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (0.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 0.0);
-    //     assert_relative_eq!(zmin, 0.0);
-
-    //     // With a single input spike
-    //     let inputs = vec![Input {
-    //         source_id: 0,
-    //         weight: 1.0,
-    //         delay: 1.0,
-    //     }];
-    //     let neuron = AlphaNeuron::new_with_inputs(42, inputs);
-    //     let spikes = vec![Spike {
-    //         source_id: 0,
-    //         time: 0.0,
-    //     }];
-    //     let spike_train = LoopSpikeTrain::build(spikes, 10.0).unwrap();
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (0.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.0);
-    //     assert_relative_eq!(zmin, -0.36787944117144233);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (2.5, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.0);
-    //     assert_relative_eq!(zmin, -0.36787944117144233);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (70.0, 80.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 73.0);
-    //     assert_relative_eq!(zmin, -0.36787944117144233);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (1.25, 2.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 2.0);
-    //     assert_relative_eq!(zmin, 0.0);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (2.0, 3.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.0);
-    //     assert_relative_eq!(zmin, -0.36787944117144233);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (3.0, 4.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.0);
-    //     assert_relative_eq!(zmin, -0.36787944117144233);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (0.0, 1.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 0.0);
-    //     assert_relative_eq!(zmin, -0.002683701023220095);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (8.0, 9.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 8.0);
-    //     assert_relative_eq!(zmin, -0.014872513059998151);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (8.0, 14.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 13.0);
-    //     assert_relative_eq!(zmin, -0.36787944117144233);
-
-    //     // With multiple input spikes
-    //     let inputs = vec![
-    //         Input {
-    //             source_id: 0,
-    //             weight: 1.0,
-    //             delay: 1.0,
-    //         },
-    //         Input {
-    //             source_id: 1,
-    //             weight: 1.0,
-    //             delay: 2.5,
-    //         },
-    //         Input {
-    //             source_id: 2,
-    //             weight: 1.0,
-    //             delay: 4.0,
-    //         },
-    //         Input {
-    //             source_id: 3,
-    //             weight: -1.0,
-    //             delay: 3.5,
-    //         },
-    //     ];
-    //     let neuron = AlphaNeuron::new_with_inputs(42, inputs);
-    //     let spikes = vec![
-    //         Spike {
-    //             source_id: 0,
-    //             time: 0.0,
-    //         },
-    //         Spike {
-    //             source_id: 1,
-    //             time: 0.0,
-    //         },
-    //         Spike {
-    //             source_id: 2,
-    //             time: 0.0,
-    //         },
-    //         Spike {
-    //             source_id: 3,
-    //             time: 0.0,
-    //         },
-    //     ];
-    //     let spike_train = LoopSpikeTrain::build(spikes, 10.0).unwrap();
-    //     let input_spike_train = InLoopSpikeTrain::new_from(&neuron.inputs, &spike_train);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (0.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.5);
-    //     assert_relative_eq!(zmin, -3.0547065498182806);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (2.0, 4.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.5);
-    //     assert_relative_eq!(zmin, -3.0547065498182806);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (3.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 3.5);
-    //     assert_relative_eq!(zmin, -3.0547065498182806);
-
-    //     let (tmin, zmin) = neuron
-    //         .min_potential_deriv_in_window(&input_spike_train, (5.0, 10.0))
-    //         .unwrap();
-    //     assert_relative_eq!(tmin, 5.7286993406927635);
-    //     assert_relative_eq!(zmin, -0.3215556408466008);
-    // }
-
-    // #[cfg(test)]
-    // mod tests {
-    //     use approx::assert_relative_eq;
-    //     use core::panic;
-
-    //     use super::*;
-
-    //     #[test]
-    //     fn test_memorize_empty_periodic_spike_train() {
-    //         let period = 100.0;
-    //         let lim_weights = (-1.0, 1.0);
-    //         let max_level = 0.0;
-    //         let min_slope = 0.0;
-    //         let half_width = 0.5;
-    //         let objective = Objective::L2Norm;
-
-    //         let spike_train: Vec<Spike> = vec![
-    //             Spike::new(1, 1.0),
-    //             Spike::new(1, 3.0),
-    //             Spike::new(1, 25.0),
-    //             Spike::new(2, 5.0),
-    //             Spike::new(2, 77.0),
-    //             Spike::new(2, 89.0),
-    //         ];
-
-    //         let neuron = Neuron::new(0);
-
-    //         let spike_train: Vec<f64> = vec![];
-    //         let mut input_spike_train: Vec<InputSpike> = vec![
-    //             InputSpike::new(0, 1.0, 3.0),
-    //             InputSpike::new(0, 1.0, 5.0),
-    //             InputSpike::new(0, 1.0, 6.0),
-    //             InputSpike::new(1, 1.0, 8.0),
-    //             InputSpike::new(1, 1.0, 27.0),
-    //             InputSpike::new(1, 1.0, 30.0),
-    //             InputSpike::new(2, 1.0, 5.5),
-    //             InputSpike::new(2, 1.0, 77.5),
-    //             InputSpike::new(2, 1.0, 89.5),
-    //         ];
-
-    //         assert_eq!(
-    //             neuron
-    //                 .memorize_periodic_spike_train(
-    //                     &spike_train,
-    //                     &mut input_spike_train,
-    //                     period,
-    //                     lim_weights,
-    //                     max_level,
-    //                     min_slope,
-    //                     half_width,
-    //                     objective,
-    //                 )
-    //                 .unwrap(),
-    //             vec![0.0, 0.0, 0.0]
-    //         );
-
-    //         // let expected_connections = vec![
-    //         //     vec![Connection::build(0, 0, 0, 0.0, 1.0).unwrap()],
-    //         //     vec![
-    //         //         Connection::build(1, 0, 1, 0.0, 2.0).unwrap(),
-    //         //         Connection::build(2, 0, 1, 0.0, 5.0).unwrap(),
-    //         //     ],
-    //         //     vec![Connection::build(3, 0, 2, 0.0, 0.5).unwrap()],
-    //         // ];
-
-    //         // assert_eq!(connections, expected_connections);
-    //     }
-
-    #[test]
-    fn test_memorize_single_spike_periodic_spike_train() {
-        let spike_train = MultiChannelSpikeTrain::new_from(vec![
-            Spike::new(0, 1.55),
-            Spike::new(1, 1.0),
-            Spike::new(2, 1.5),
-            Spike::new(3, 2.0),
-            Spike::new(4, 3.5),
+        let input_spike_train = AlphaInputSpikeTrain::new(vec![
+            AlphaInputSpike::new(1, -99.0, f64::NAN),
+            AlphaInputSpike::new(2, -98.5, f64::NAN),
+            AlphaInputSpike::new(0, -98.45, f64::NAN),
+            AlphaInputSpike::new(3, -98.0, f64::NAN),
+            AlphaInputSpike::new(4, -96.5, f64::NAN),
+            AlphaInputSpike::new(1, 1.0, f64::NAN),
+            AlphaInputSpike::new(2, 1.5, f64::NAN),
+            AlphaInputSpike::new(0, 1.55, f64::NAN),
+            AlphaInputSpike::new(3, 2.0, f64::NAN),
+            AlphaInputSpike::new(4, 3.5, f64::NAN),
+            AlphaInputSpike::new(1, 101.0, f64::NAN),
+            AlphaInputSpike::new(2, 101.5, f64::NAN),
+            AlphaInputSpike::new(0, 101.55, f64::NAN),
+            AlphaInputSpike::new(3, 102.0, f64::NAN),
+            AlphaInputSpike::new(4, 103.5, f64::NAN),
         ]);
+        neuron
+            .memorize(
+                vec![time_template],
+                vec![input_spike_train],
+                (-5.0, 5.0),
+                0.5,
+                0.0,
+                Objective::L1,
+            )
+            .expect("Memorization failed");
 
+        neuron.init_input_spike_train(&vec![
+            vec![1.55],
+            vec![1.0],
+            vec![1.5],
+            vec![2.0],
+            vec![3.5],
+        ]);
+        assert_relative_eq!(neuron.next_spike(0.0).unwrap(), 1.55, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_memorize_single_spike_periodic_spike_train_l2() {
         let mut neuron = AlphaNeuron::new_empty(0, 0);
         neuron.add_input(0, f64::NAN, 0.0);
         neuron.add_input(1, f64::NAN, 0.0);
@@ -1673,80 +1264,62 @@ mod tests {
             )
             .expect("Memorization failed");
 
-        // let input_spike_train = AlphaInputSpikeTrain::new_from(&neuron.inputs, &spike_train);
-        neuron.init_input_spike_train(&spike_train);
-        assert_relative_eq!(neuron.next_spike(0.0).unwrap().time, 1.55);
-        // panic!("{} fires at {}", neuron.id, neuron.next_spike(0.0).unwrap().time);
+        neuron.init_input_spike_train(&vec![
+            vec![1.55],
+            vec![1.0],
+            vec![1.5],
+            vec![2.0],
+            vec![3.5],
+        ]);
+        assert_relative_eq!(neuron.next_spike(0.0).unwrap(), 1.55, epsilon = 1e-9);
+    }
 
-        // let mut connections = vec![
-        //     vec![Connection::build(0, 0, 0, 1.0, 0.0).unwrap()],
-        //     vec![Connection::build(1, 1, 0, 1.0, 0.0).unwrap()],
-        //     vec![Connection::build(2, 2, 0, 1.0, 0.0).unwrap()],
-        //     vec![Connection::build(3, 3, 0, 1.0, 0.0).unwrap()],
-        //     vec![Connection::build(4, 4, 0, 1.0, 0.0).unwrap()],
-        // ];
+    #[test]
+    fn test_memorize_single_spike_periodic_spike_train_linf() {
+        let mut neuron = AlphaNeuron::new_empty(0, 0);
+        neuron.add_input(0, f64::NAN, 0.0);
+        neuron.add_input(1, f64::NAN, 0.0);
+        neuron.add_input(2, f64::NAN, 0.0);
+        neuron.add_input(3, f64::NAN, 0.0);
+        neuron.add_input(4, f64::NAN, 0.0);
 
-        // let _weights = neuron(
-        //         &spike_train,
-        //         &mut input_spike_train,
-        //         period,
-        //         lim_weights,
-        //         max_level,
-        //         min_slope,
-        //         half_width,
-        //         Objective::None,
-        //     )
-        //     .expect("Memorization failed");
+        let time_template = TimeTemplate::new_cyclic_from(&vec![1.55], 0.25, 100.0);
 
-        // let weights = neuron
-        //     .memorize_periodic_spike_train(
-        //         &spike_train,
-        //         &mut input_spike_train,
-        //         period,
-        //         lim_weights,
-        //         max_level,
-        //         min_slope,
-        //         half_width,
-        //         Objective::L2Norm,
-        //     )
-        //     .expect("L2-memorization failed");
+        let input_spike_train = AlphaInputSpikeTrain::new(vec![
+            AlphaInputSpike::new(1, -99.0, f64::NAN),
+            AlphaInputSpike::new(2, -98.5, f64::NAN),
+            AlphaInputSpike::new(0, -98.45, f64::NAN),
+            AlphaInputSpike::new(3, -98.0, f64::NAN),
+            AlphaInputSpike::new(4, -96.5, f64::NAN),
+            AlphaInputSpike::new(1, 1.0, f64::NAN),
+            AlphaInputSpike::new(2, 1.5, f64::NAN),
+            AlphaInputSpike::new(0, 1.55, f64::NAN),
+            AlphaInputSpike::new(3, 2.0, f64::NAN),
+            AlphaInputSpike::new(4, 3.5, f64::NAN),
+            AlphaInputSpike::new(1, 101.0, f64::NAN),
+            AlphaInputSpike::new(2, 101.5, f64::NAN),
+            AlphaInputSpike::new(0, 101.55, f64::NAN),
+            AlphaInputSpike::new(3, 102.0, f64::NAN),
+            AlphaInputSpike::new(4, 103.5, f64::NAN),
+        ]);
+        neuron
+            .memorize(
+                vec![time_template],
+                vec![input_spike_train],
+                (-5.0, 5.0),
+                0.5,
+                0.0,
+                Objective::LInfinity,
+            )
+            .expect("Memorization failed");
 
-        // assert_eq!(
-        //     weights,
-        //     vec![
-        //         -1.40501505062582,
-        //         0.8276421729855583,
-        //         2.2129265840338137,
-        //         -1.2119262246876459,
-        //         -0.0
-        //     ]
-        // );
-        // assert_relative_eq!(weights[1], 1.157671, epsilon = 1e-6);
-        // assert_relative_eq!(weights[2], 0.011027, epsilon = 1e-6);
-        // assert_relative_eq!(weights[3], -0.415485, epsilon = 1e-6);
-        // assert_relative_eq!(weights[4], 0.0);
-
-        // let weights = neuron
-        //     .memorize_periodic_spike_train(
-        //         &spike_train,
-        //         &mut input_spike_train,
-        //         period,
-        //         lim_weights,
-        //         max_level,
-        //         min_slope,
-        //         half_width,
-        //         Objective::L1Norm,
-        //     )
-        //     .expect("L1-memorization failed");
-        // assert_eq!(
-        //     weights,
-        //     vec![
-        //         -2.092002954197055,
-        //         0.8276421729856879,
-        //         2.2129265840329473,
-        //         -0.41548472074177123,
-        //         0.0
-        //     ]
-        // );
+        neuron.init_input_spike_train(&vec![
+            vec![1.55],
+            vec![1.0],
+            vec![1.5],
+            vec![2.0],
+            vec![3.5],
+        ]);
+        assert_relative_eq!(neuron.next_spike(0.0).unwrap(), 1.55, epsilon = 1e-9);
     }
 }
