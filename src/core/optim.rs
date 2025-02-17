@@ -7,7 +7,7 @@ use crate::core::REFRACTORY_PERIOD;
 use crate::error::SNNError;
 
 /// The tolerance for a constraint to be considered as satisfied, c.f. [FeasibilityTol](https://docs.gurobi.com/projects/optimizer/en/current/reference/parameters.html#parameterfeasibilitytol)
-pub const FEASIBILITY_TOL: f64 = 1e-9;
+pub const FEASIBILITY_TOL: f64 = 1e-6;
 /// The maximum number of new constraints to be added to the model during the refinement.
 pub const MAX_NEW_CSTRS: usize = 1;
 /// The maximum number of iterations for the memorization process.

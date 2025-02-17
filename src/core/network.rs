@@ -17,7 +17,7 @@ use crate::core::utils::TimeInterval;
 use crate::error::SNNError;
 
 /// Minimum number of neurons to parallelize the computation.
-pub const MIN_NEURONS_PAR: usize = 10000;
+pub const MIN_NEURONS_PAR: usize = 10;
 
 /// A connection between two neurons.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
