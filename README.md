@@ -1,31 +1,30 @@
 # ⚡️piking Neural Network - A Rust Implementation 🦀 
 
 We consider (continuous-time) spiking neural networks and their use as robust memorizers of arbitrary spike trains. 
-For details, we refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166). 
+We refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166) for details. 
 
 The implementation is based on the [Rust programming language](https://www.rust-lang.org/).
-This language was designed with several key goals in mind, which revolve around improving safety, performance, and concurrency[^1], while making systems programming more accessible and ergonomic.
+This language was designed with several key goals, which revolve around improving safety, performance, and concurrency.
 
 ## Installation
 
 To install Rust, follow the instructions on the [official website](https://www.rust-lang.org/tools/install).
-The installation includes the Rust compiler, Cargo, which is the Rust package manager, and the Rust standard library.
+The installation includes the Rust compiler, Cargo (the Rust package manager) and the Rust standard library.
 
-### From Source
+### Building from Source 
 
-To build the project from source, clone the repository and run the following command in the root directory:
-```bash
-cargo build --release
+To build the project from source, clone the repository and execute the following command in the root directory: 
+```bash 
+cargo build --release 
+``` 
+You can also generate the documentation by running: 
+```bash 
+cargo doc --open 
 ```
-Then, you can start using the crate by importing it into your project.
-It is also possible to generate the documentation by running:
-```bash
-cargo doc --open
-```
 
-### From Crates.io
+### Installation from crates.io
 
-Coming soon...
+This feature will be available soon.
 
 ## References
 
