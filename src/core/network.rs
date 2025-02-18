@@ -342,7 +342,7 @@ pub trait Network {
     /// Simulate the network activity on the specified time interval.
     fn run(&mut self, time_interval: &TimeInterval, threshold_noise: f64) -> Result<(), SNNError> {
         if let TimeInterval::Closed { start, end } = time_interval {
-            log::info!("Starting simulation...");
+            log::info!("Running network simulation from {} to {}", start, end);
 
             // For logging purposes
             let total_duration = end - start;
@@ -425,17 +425,14 @@ pub trait Network {
                     .collect::<Vec<Option<f64>>>();
 
                 // Get the lowest among all accepted spikes if any or end the simulation
-                match new_times
+                time = match new_times
                     .iter()
                     .filter_map(|x| *x)
                     .min_by(|a, b| a.partial_cmp(&b).unwrap())
                 {
-                    Some(min_time) => time = min_time,
-                    None => {
-                        log::info!("Network activity has ceased...");
-                        return Ok(());
-                    }
-                }
+                    Some(min_time) => min_time,
+                    None => *end,
+                };
 
                 // Update the neuron internal state: 1) fire the accepted spikes and 2) update the input spike trains
                 // let new_spike_train = MultiChannelSpikeTrain::new_from(new_times);
