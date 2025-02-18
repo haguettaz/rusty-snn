@@ -62,27 +62,26 @@ pub trait Neuron: Sync + Send {
         self.input_spike_train().potential(time)
     }
 
-    /// A reference to the vector of inputs of the neuron
-    fn inputs(&self) -> &Vec<Input>;
+    /// Returns a slice of inputs of the neuron.
+    fn inputs(&self) -> &[Input];
 
-    /// A mutable reference to the vector of inputs of the neuron
+    /// Returns a mutable reference to the vector of inputs of the neuron
     fn inputs_mut(&mut self) -> &mut Vec<Input>;
 
-    /// Get a reference to the vector of inputs of the neuron
+    /// Returns an iterator over the inputs of the neuron.
     fn inputs_iter(&self) -> impl Iterator<Item = &Input> + '_;
 
-    /// Get a reference to the inputs of the neuron.
+    /// Returns a mutable iterator over the inputs of the neuron.
     fn inputs_iter_mut(&mut self) -> impl Iterator<Item = &mut Input> + '_;
 
-    /// A reference to the ith input.
+    /// Returns a reference to a specific input.
     fn input_ref(&self, i: usize) -> Option<&Input>;
 
-    /// A mutable reference to a specific input.
+    /// Returns a mutable reference to a specific input.
     fn input_mut(&mut self, i: usize) -> Option<&mut Input>;
 
-    /// Add an input to the neuron.
-    fn add_input(&mut self, source_id: usize, weight: f64, delay: f64) {
-        // let input = Input::new(self.num_inputs(), source_id, weight, delay);
+    /// Push an input to the neuron.
+    fn push_input(&mut self, source_id: usize, weight: f64, delay: f64) {
         let input = Input::new(source_id, weight, delay);
         self.inputs_mut().push(input);
     }
@@ -93,7 +92,9 @@ pub trait Neuron: Sync + Send {
     }
 
     /// Clear the inputs to the neuron.
-    fn clear_inputs(&mut self) {}
+    fn clear_inputs(&mut self) {
+        self.inputs_mut().clear();
+    }
 
     /// A reference to the input spike train of a specific channel.
     fn input_spike_train(&self) -> &Self::InputSpikeTrain;
@@ -215,7 +216,9 @@ pub trait Neuron: Sync + Send {
             // Update the input spike trains
             input_spike_trains
                 .iter_mut()
-                .try_for_each(|input_spike_train| input_spike_train.apply_weight_change(self.inputs()))?;
+                .try_for_each(|input_spike_train| {
+                    input_spike_train.apply_weight_change(self.inputs())
+                })?;
 
             // Refine the constraints to ensure the neuron's behavior is consistent with the provided spike trains and time templates
             log::trace!("Neuron {}: refine constraints...", self.id());
@@ -230,21 +233,20 @@ pub trait Neuron: Sync + Send {
             log::trace!("Neuron {}: {} new constraints added", self.id(), new_cstrs);
 
             if new_cstrs == 0 {
-                match objective {
+                return match objective {
                     Objective::None => {
-                        // Get the total number of constraints
                         let num_cstrs = model
                             .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
                         log::info!(
-                            "Neuron {}: optimization succeeded in {} iterations! All {} (time) constraints are satisfied.",
+                            "Neuron {}: Optimization succeeded in {} iterations! All {} (time) constraints are satisfied.",
                             self.id(),
                             it,
                             num_cstrs
                         );
+                        Ok(())
                     }
-                    _ => {
-                        // Get the total number of constraints and the objective value
+                    Objective::L2 => {
                         let num_cstrs = model
                             .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
@@ -252,14 +254,33 @@ pub trait Neuron: Sync + Send {
                             .get_attr(grb::attribute::ModelDoubleAttr::ObjVal)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
                         log::info!(
-                            "Neuron {}: optimization succeeded in {} iterations! All {} (time) constraints are satisfied for a final cost of {}.",
+                            "Neuron {}: Optimization succeeded in {} iterations!! All {} (time) constraints are satisfied for a final cost of {}.",
                             self.id(),
                             it,
-                            num_cstrs - 1, obj_val
+                            num_cstrs, obj_val
                         );
+                        Ok(())
                     }
-                }
-                return Ok(());
+                    Objective::L1 => {
+                        let num_cstrs = model
+                            .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
+                            .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
+                        let obj_val = model
+                            .get_attr(grb::attribute::ModelDoubleAttr::ObjVal)
+                            .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
+                        log::info!(
+                            "Neuron {}: Optimization succeeded in {} iterations! All {} (time) constraints are satisfied for a final cost of {}.",
+                            self.id(),
+                            it,
+                            num_cstrs - (self.num_inputs() as i32 * 2),
+                            obj_val,
+                        );
+                        Ok(())
+                    }
+                    _ => Err(SNNError::NotImplemented(
+                        "Objective not implemented".to_string(),
+                    )),
+                };
             }
         }
 
@@ -364,7 +385,7 @@ pub trait Neuron: Sync + Send {
             let pairs = input_spike_train
                 .max_potential_in_windows(&time_template.silence_regions, optim::MAX_NEW_CSTRS);
             for pair in pairs.iter() {
-                if pair.value > max_level + optim::FEASIBILITY_TOL {
+                if pair.value > max_level + optim::REF_FEASIBILITY_TOL {
                     self.add_max_potential_cstr(
                         model,
                         &weights,
@@ -387,7 +408,7 @@ pub trait Neuron: Sync + Send {
                 optim::MAX_NEW_CSTRS,
             );
             for pair in pairs.iter() {
-                if pair.value < min_slope - optim::FEASIBILITY_TOL {
+                if pair.value < min_slope - optim::REF_FEASIBILITY_TOL {
                     self.add_min_potential_deriv_cstr(
                         model,
                         &weights,
@@ -467,14 +488,14 @@ pub trait InputSpikeTrain {
     /// Returns a collection of input spikes (an input spike train) to a neuron from a collection of inputs and (cyclic) firing times (time of emission).
     /// Only the periodically extended input spikes which are non negligible in the provided time interval are kept.
     fn new_cyclic_from(
-        inputs: &Vec<Input>,
+        inputs: &[Input],
         ftimes: &Vec<Vec<f64>>,
         period: f64,
         interval: &TimeInterval,
     ) -> Self;
 
     /// Returns a collection of input spikes (an input spike train) to a neuron from a collection of inputs and firing times (time of emission).
-    fn new_from(inputs: &Vec<Input>, ftimes: &Vec<Vec<f64>>) -> Self;
+    fn new_from(inputs: &[Input], ftimes: &Vec<Vec<f64>>) -> Self;
 
     /// An iterator over the input spikes.
     fn iter(&self) -> impl Iterator<Item = &Self::InputSpike> + '_;
@@ -488,7 +509,7 @@ pub trait InputSpikeTrain {
     }
 
     /// Update the input spikes after a change in the input weights.
-    fn apply_weight_change(&mut self, inputs: &Vec<Input>) -> Result<(), SNNError>;
+    fn apply_weight_change(&mut self, inputs: &[Input]) -> Result<(), SNNError>;
 
     /// Insert a collection of (sorted) input spikes into the input spike train.
     fn insert_sorted(&mut self, new_input_spike: Vec<Self::InputSpike>);

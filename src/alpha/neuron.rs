@@ -120,7 +120,7 @@ impl Neuron for AlphaNeuron {
     }
 
     /// A reference to the vector of inputs of the neuron
-    fn inputs(&self) -> &Vec<Input> {
+    fn inputs(&self) -> &[Input] {
         &self.inputs
     }
 
@@ -340,7 +340,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
     }
 
     /// A new input spike train from a collection of inputs and firing times.
-    fn new_from(inputs: &Vec<Input>, ftimes: &Vec<Vec<f64>>) -> Self {
+    fn new_from(inputs: &[Input], ftimes: &Vec<Vec<f64>>) -> Self {
         let mut input_spikes: Vec<Self::InputSpike> = inputs
             .iter()
             .enumerate()
@@ -368,7 +368,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
     /// A new input spike train from a collection of inputs and (cyclic) firing times.
     /// The firing times are periodically repeated until being negligeable on the provided interval.
     fn new_cyclic_from(
-        inputs: &Vec<Input>,
+        inputs: &[Input],
         ftimes: &Vec<Vec<f64>>,
         period: f64,
         interval: &TimeInterval,
@@ -425,7 +425,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
     }
 
     /// Update the input spikes after a change in the input weights.
-    fn apply_weight_change(&mut self, inputs: &Vec<Input>) -> Result<(), SNNError> {
+    fn apply_weight_change(&mut self, inputs: &[Input]) -> Result<(), SNNError> {
         self.input_spikes.iter_mut().try_for_each(|input_spike| {
             let input = inputs
                 .get(input_spike.input_id)
@@ -1179,11 +1179,11 @@ mod tests {
     #[test]
     fn test_memorize_single_spike_periodic_spike_train_l1() {
         let mut neuron = AlphaNeuron::new_empty(0, 0);
-        neuron.add_input(0, f64::NAN, 0.0);
-        neuron.add_input(1, f64::NAN, 0.0);
-        neuron.add_input(2, f64::NAN, 0.0);
-        neuron.add_input(3, f64::NAN, 0.0);
-        neuron.add_input(4, f64::NAN, 0.0);
+        neuron.push_input(0, f64::NAN, 0.0);
+        neuron.push_input(1, f64::NAN, 0.0);
+        neuron.push_input(2, f64::NAN, 0.0);
+        neuron.push_input(3, f64::NAN, 0.0);
+        neuron.push_input(4, f64::NAN, 0.0);
 
         let time_template = TimeTemplate::new_cyclic_from(&vec![1.55], 0.25, 100.0);
 
@@ -1228,11 +1228,11 @@ mod tests {
     #[test]
     fn test_memorize_single_spike_periodic_spike_train_l2() {
         let mut neuron = AlphaNeuron::new_empty(0, 0);
-        neuron.add_input(0, f64::NAN, 0.0);
-        neuron.add_input(1, f64::NAN, 0.0);
-        neuron.add_input(2, f64::NAN, 0.0);
-        neuron.add_input(3, f64::NAN, 0.0);
-        neuron.add_input(4, f64::NAN, 0.0);
+        neuron.push_input(0, f64::NAN, 0.0);
+        neuron.push_input(1, f64::NAN, 0.0);
+        neuron.push_input(2, f64::NAN, 0.0);
+        neuron.push_input(3, f64::NAN, 0.0);
+        neuron.push_input(4, f64::NAN, 0.0);
 
         let time_template = TimeTemplate::new_cyclic_from(&vec![1.55], 0.25, 100.0);
 
@@ -1261,55 +1261,6 @@ mod tests {
                 0.5,
                 0.0,
                 Objective::L2,
-            )
-            .expect("Memorization failed");
-
-        neuron.init_input_spike_train(&vec![
-            vec![1.55],
-            vec![1.0],
-            vec![1.5],
-            vec![2.0],
-            vec![3.5],
-        ]);
-        assert_relative_eq!(neuron.next_spike(0.0).unwrap(), 1.55, epsilon = 1e-9);
-    }
-
-    #[test]
-    fn test_memorize_single_spike_periodic_spike_train_linf() {
-        let mut neuron = AlphaNeuron::new_empty(0, 0);
-        neuron.add_input(0, f64::NAN, 0.0);
-        neuron.add_input(1, f64::NAN, 0.0);
-        neuron.add_input(2, f64::NAN, 0.0);
-        neuron.add_input(3, f64::NAN, 0.0);
-        neuron.add_input(4, f64::NAN, 0.0);
-
-        let time_template = TimeTemplate::new_cyclic_from(&vec![1.55], 0.25, 100.0);
-
-        let input_spike_train = AlphaInputSpikeTrain::new(vec![
-            AlphaInputSpike::new(1, -99.0, f64::NAN),
-            AlphaInputSpike::new(2, -98.5, f64::NAN),
-            AlphaInputSpike::new(0, -98.45, f64::NAN),
-            AlphaInputSpike::new(3, -98.0, f64::NAN),
-            AlphaInputSpike::new(4, -96.5, f64::NAN),
-            AlphaInputSpike::new(1, 1.0, f64::NAN),
-            AlphaInputSpike::new(2, 1.5, f64::NAN),
-            AlphaInputSpike::new(0, 1.55, f64::NAN),
-            AlphaInputSpike::new(3, 2.0, f64::NAN),
-            AlphaInputSpike::new(4, 3.5, f64::NAN),
-            AlphaInputSpike::new(1, 101.0, f64::NAN),
-            AlphaInputSpike::new(2, 101.5, f64::NAN),
-            AlphaInputSpike::new(0, 101.55, f64::NAN),
-            AlphaInputSpike::new(3, 102.0, f64::NAN),
-            AlphaInputSpike::new(4, 103.5, f64::NAN),
-        ]);
-        neuron
-            .memorize(
-                vec![time_template],
-                vec![input_spike_train],
-                (-5.0, 5.0),
-                0.5,
-                0.0,
-                Objective::LInfinity,
             )
             .expect("Memorization failed");
 

@@ -27,7 +27,7 @@ const TOL: f64 = 1e-12;
 ///
 /// // Create a similarity for a reference collection of spike times and a period of 10.0
 /// let ref_times = vec![vec![0.75, 3.25, 4.5, 8.25], vec![2.0, 9.0], vec![1.0, 3.0, 5.75]];
-/// let similarity = Similarity::new(ref_times, 10.0);
+/// let similarity = Similarity::new(ref_times, 10.0).unwrap();
 ///
 /// // Compute the precision and recall of a collection of globally shifted spike times.
 /// let times = vec![vec![0.5, 3.0, 4.25, 8.0], vec![1.75, 8.75], vec![0.75, 2.75, 5.5]];
@@ -46,8 +46,13 @@ pub struct Similarity {
 
 impl Similarity {
     /// Create a new `Similarity` instance with the given reference spike times and period.
-    pub fn new(ref_times: Vec<Vec<f64>>, period: f64) -> Similarity {
-        Similarity { ref_times, period }
+    pub fn new(ref_times: Vec<Vec<f64>>, period: f64) -> Result<Similarity, SNNError> {
+        if period <= 0.0 {
+            return Err(SNNError::InvalidParameter(
+                "The period must be a positive number.".to_string(),
+            ));
+        }
+        Ok(Similarity { ref_times, period })
     }
 
     /// The number of channels in the reference spike train.
@@ -378,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_process_time() {
-        let similarity = Similarity::new(vec![vec![]], 5.0);
+        let similarity = Similarity::new(vec![vec![]], 5.0).unwrap();
 
         assert_eq!(
             similarity.process_times(&vec![vec![]], 0.0),
@@ -404,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_extended_shifts() {
-        let similarity = Similarity::new(vec![vec![0.0, 2.5, 4.0]], 5.0);
+        let similarity = Similarity::new(vec![vec![0.0, 2.5, 4.0]], 5.0).unwrap();
 
         let ctimes = vec![0.25, 2.0];
         let times = vec![&ctimes[..]];
@@ -419,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_precision_recall() {
-        let similarity = Similarity::new(vec![vec![0.75, 2.0, 3.25, 4.5]], 6.0);
+        let similarity = Similarity::new(vec![vec![0.75, 2.0, 3.25, 4.5]], 6.0).unwrap();
 
         let times = vec![vec![5.75, 7.0, 8.25, 9.5]];
         let (precision, recall) = similarity.measure(&times, 5.0).unwrap();
@@ -429,13 +434,13 @@ mod tests {
 
     #[test]
     fn test_precision_recall_empty() {
-        let similarity = Similarity::new(vec![vec![0.75, 2.0, 3.25, 4.5]], 6.0);
+        let similarity = Similarity::new(vec![vec![0.75, 2.0, 3.25, 4.5]], 6.0).unwrap();
         let times = vec![vec![]];
         let (precision, recall) = similarity.measure(&times, 0.0).unwrap();
         assert_relative_eq!(precision, 0.0, epsilon = 1e-6);
         assert_relative_eq!(recall, 0.0, epsilon = 1e-6);
 
-        let similarity = Similarity::new(vec![vec![]], 6.0);
+        let similarity = Similarity::new(vec![vec![]], 6.0).unwrap();
         let times = vec![vec![0.75, 2.0, 3.25, 4.5]];
         let (precision, recall) = similarity.measure(&times, 0.0).unwrap();
         assert_relative_eq!(precision, 0.0, epsilon = 1e-6);
@@ -447,7 +452,8 @@ mod tests {
         let similarity = Similarity::new(
             vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 100],
             100.0,
-        );
+        )
+        .unwrap();
 
         let times = vec![(0..50).map(|i| 1.0 + 2.0_f64 * i as f64).collect(); 100];
         let (precision, recall) = similarity.measure(&times, 0.0).unwrap();

@@ -1,6 +1,6 @@
+use crate::core::metrics::*;
 use crate::core::neuron::Input;
 use crate::core::spike::Spike;
-use crate::core::metrics::*;
 
 #[derive(Debug)]
 pub struct AlphaLinearJitterPropagator {
@@ -16,7 +16,7 @@ impl AlphaLinearJitterPropagator {
         }
     }
 
-    pub fn new(connections: Vec<&Vec<Input>>, times: &Vec<Vec<f64>>, period: f64) -> Self {
+    pub fn new(connections: Vec<&[Input]>, times: &Vec<Vec<f64>>, period: f64) -> Self {
         let mut spikes = times
             .iter()
             .enumerate()
@@ -115,11 +115,18 @@ mod tests {
             Input::new(2, 1.0, 0.0),
             Input::new(3, 1.0, 0.0),
         ];
-        let connections = vec![&inputs_0, &inputs_1, &inputs_2, &inputs_3, &inputs_4];
+        let connections = vec![
+            inputs_0.as_slice(),
+            inputs_1.as_slice(),
+            inputs_2.as_slice(),
+            inputs_3.as_slice(),
+            inputs_4.as_slice(),
+        ];
         let times = vec![vec![0.0], vec![2.0], vec![4.0], vec![6.0], vec![8.0]];
         let period = 10.0;
 
-        let linear_jitter_propagator = AlphaLinearJitterPropagator::new(connections, &times, period);
+        let linear_jitter_propagator =
+            AlphaLinearJitterPropagator::new(connections, &times, period);
         let phi = linear_jitter_propagator.spectral_radius(SEED).unwrap();
         assert_relative_eq!(phi, 0.000786348, max_relative = 1e-2);
     }
@@ -151,12 +158,19 @@ mod tests {
             Input::new(2, 1.0, 0.0),
             Input::new(3, 1.0, 0.0),
         ];
-        let connections = vec![&inputs_0, &inputs_1, &inputs_2, &inputs_3, &inputs_4];
+        let connections = vec![
+            inputs_0.as_slice(),
+            inputs_1.as_slice(),
+            inputs_2.as_slice(),
+            inputs_3.as_slice(),
+            inputs_4.as_slice(),
+        ];
 
         let times = vec![vec![0.0], vec![2.0], vec![4.0], vec![6.0], vec![8.0]];
         let period = 10.0;
 
-        let linear_jitter_propagator = AlphaLinearJitterPropagator::new(connections, &times, period);
+        let linear_jitter_propagator =
+            AlphaLinearJitterPropagator::new(connections, &times, period);
         let phi = linear_jitter_propagator.spectral_radius(SEED).unwrap();
 
         assert_relative_eq!(phi, 0.0009247, max_relative = 1e-2);

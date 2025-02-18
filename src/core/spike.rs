@@ -3,14 +3,15 @@ use itertools::Itertools;
 use log;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rand_distr::{weighted::WeightedIndex, Distribution, Normal, Uniform};
+use rand_distr::{weighted::WeightedIndex, Distribution, Uniform};
+use rtnorm_rust::rtnorm;
 use serde::{Deserialize, Serialize};
 
 use crate::core::REFRACTORY_PERIOD;
 use crate::error::SNNError;
 
 /// The number of iterations for Gibbs sampling.
-pub const NUM_ITER_GIBBS_SAMPLING: usize = 1000;
+pub const NUM_ITER_GIBBS_SAMPLING: usize = 100;
 
 /// A spike produced by a neuron at a given time.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -37,46 +38,106 @@ impl PartialOrd for Spike {
 /// Returns a new perturbed spike train where every spikes have been randomly jittered.
 /// The new perturbed spike train still satisfies the refractory period.
 pub fn rand_jitter(
-    ref_times: &Vec<Vec<f64>>,
+    rtimes: &Vec<Vec<f64>>,
     start: f64,
     end: f64,
     sigma: f64,
     seed: u64,
 ) -> Result<Vec<Vec<f64>>, SNNError> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    let normal_sampler = Normal::new(0.0, sigma).unwrap();
+    let mut rng = rgsl::Rng::new(rgsl::RngType::default()).unwrap();
+    rng.set(seed as usize);
 
-    let mut times = ref_times.clone();
+    let mut times = rtimes.clone();
     times
         .iter_mut()
-        .zip_eq(ref_times.iter())
-        .for_each(|(ctimes, ref_ctimes)| {
+        .zip_eq(rtimes.iter())
+        .for_each(|(ctimes, rctimes)| {
+            let num_spikes = ctimes.len();
             for _ in 0..NUM_ITER_GIBBS_SAMPLING {
-                (0..ref_ctimes.len()).step_by(2).for_each(|i| loop {
-                    let time = ref_ctimes[i] + normal_sampler.sample(&mut rng);
-                    if (time >= start)
-                        && (time <= end)
-                        && (i == 0 || time >= ref_ctimes[i - 1] + REFRACTORY_PERIOD)
-                        && (i == ref_ctimes.len() - 1
-                            || time <= ref_ctimes[i + 1] - REFRACTORY_PERIOD)
-                    {
-                        ctimes[i] = time;
-                        break;
-                    }
-                });
+                std::iter::once(None)
+                    .chain((0..num_spikes).map(|i| Some(i)))
+                    .chain(std::iter::once(None))
+                    .tuple_windows::<(_, _, _)>()
+                    .map(|(prev_i, i, next_i)| (prev_i, i.unwrap(), next_i))
+                    .step_by(2)
+                    .for_each(|(prev_i, i, next_i)| {
+                        (ctimes[i], _) = match (prev_i, next_i) {
+                            (None, None) => rtnorm(&mut rng, start, end, rctimes[i], sigma),
+                            (None, Some(next_i)) => rtnorm(
+                                &mut rng,
+                                start,
+                                rctimes[next_i] - REFRACTORY_PERIOD,
+                                rctimes[i],
+                                sigma,
+                            ),
+                            (Some(prev_i), None) => rtnorm(
+                                &mut rng,
+                                rctimes[prev_i] + REFRACTORY_PERIOD,
+                                end,
+                                rctimes[i],
+                                sigma,
+                            ),
+                            (Some(prev_i), Some(next_i)) => rtnorm(
+                                &mut rng,
+                                rctimes[prev_i] + REFRACTORY_PERIOD,
+                                rctimes[next_i] - REFRACTORY_PERIOD,
+                                rctimes[i],
+                                sigma,
+                            ),
+                        }
+                    });
 
-                (1..ref_ctimes.len()).step_by(2).for_each(|i| loop {
-                    let time = ref_ctimes[i] + normal_sampler.sample(&mut rng);
-                    if (time >= start)
-                        && (time <= end)
-                        && time >= ref_ctimes[i - 1] + REFRACTORY_PERIOD
-                        && (i == ref_ctimes.len() - 1
-                            || time <= ref_ctimes[i + 1] - REFRACTORY_PERIOD)
-                    {
-                        ctimes[i] = time;
-                        break;
-                    }
-                });
+                (0..num_spikes)
+                    .map(|i| Some(i))
+                    .chain(std::iter::once(None))
+                    .tuple_windows::<(_, _, _)>()
+                    .map(|(prev_i, i, next_i)| (prev_i.unwrap(), i.unwrap(), next_i))
+                    .step_by(2)
+                    .for_each(|(prev_i, i, next_i)| {
+                        (ctimes[i], _) = match next_i {
+                            None => rtnorm(
+                                &mut rng,
+                                rctimes[prev_i] + REFRACTORY_PERIOD,
+                                end,
+                                rctimes[i],
+                                sigma,
+                            ),
+                            Some(next_i) => rtnorm(
+                                &mut rng,
+                                rctimes[prev_i] + REFRACTORY_PERIOD,
+                                rctimes[next_i] - REFRACTORY_PERIOD,
+                                rctimes[i],
+                                sigma,
+                            ),
+                        }
+                    });
+
+                // let time = rtnorm(&mut rng, start,
+                // (2..ref_ctimes.len()).step_by(2).for_each(|i| loop {
+                //     let time = ref_ctimes[i] + normal_sampler.sample(&mut rng);
+                //     if (time >= start)
+                //         && (time <= end)
+                //         && (i == 0 || time >= ref_ctimes[i - 1] + REFRACTORY_PERIOD)
+                //         && (i == ref_ctimes.len() - 1
+                //             || time <= ref_ctimes[i + 1] - REFRACTORY_PERIOD)
+                //     {
+                //         ctimes[i] = time;
+                //         break;
+                //     }
+                // });
+
+                // (1..ref_ctimes.len()).step_by(2).for_each(|i| loop {
+                //     let time = ref_ctimes[i] + normal_sampler.sample(&mut rng);
+                //     if (time >= start)
+                //         && (time <= end)
+                //         && time >= ref_ctimes[i - 1] + REFRACTORY_PERIOD
+                //         && (i == ref_ctimes.len() - 1
+                //             || time <= ref_ctimes[i + 1] - REFRACTORY_PERIOD)
+                //     {
+                //         ctimes[i] = time;
+                //         break;
+                //     }
+                // });
             }
         });
 
@@ -91,13 +152,13 @@ pub fn rand_cyclic(
     seed: u64,
 ) -> Result<Vec<Vec<f64>>, SNNError> {
     if period <= 0.0 {
-        return Err(SNNError::InvalidParameters(
+        return Err(SNNError::InvalidParameter(
             "Invalid period value: must be positive".to_string(),
         ));
     }
 
     if firing_rate < 0.0 {
-        return Err(SNNError::InvalidParameters(
+        return Err(SNNError::InvalidParameter(
             "Invalid firing rate value: must be non-negative".to_string(),
         ));
     }
@@ -114,7 +175,7 @@ pub fn rand_cyclic(
         WeightedIndex::new(weights).map_err(|e| SNNError::InvalidNumSpikeWeights(e.to_string()))?;
 
     let uniform_ref =
-        Uniform::new(0.0, period).map_err(|e| SNNError::InvalidParameters(e.to_string()))?;
+        Uniform::new(0.0, period).map_err(|e| SNNError::InvalidParameter(e.to_string()))?;
 
     for id in 0..num_neurons {
         let num_spikes = p_num_spikes.sample(&mut rng);
@@ -127,7 +188,7 @@ pub fn rand_cyclic(
 
         times[id].push(t0);
         let uniform = Uniform::new(0.0, period - num_spikes as f64)
-            .map_err(|e| SNNError::InvalidParameters(e.to_string()))?;
+            .map_err(|e| SNNError::InvalidParameter(e.to_string()))?;
 
         let mut tmp_times: Vec<f64> = (0..num_spikes - 1)
             .map(|_| uniform.sample(&mut rng))
@@ -211,21 +272,21 @@ mod tests {
         // Test invalid parameters
         assert_eq!(
             rand_cyclic(10, -10.0, 1.0, SEED),
-            Err(SNNError::InvalidParameters(
+            Err(SNNError::InvalidParameter(
                 "Invalid period value: must be positive".to_string()
             ))
         );
 
         assert_eq!(
             rand_cyclic(10, 0.0, 1.0, SEED),
-            Err(SNNError::InvalidParameters(
+            Err(SNNError::InvalidParameter(
                 "Invalid period value: must be positive".to_string()
             ))
         );
 
         assert_eq!(
             rand_cyclic(10, 10.0, -1.0, SEED),
-            Err(SNNError::InvalidParameters(
+            Err(SNNError::InvalidParameter(
                 "Invalid firing rate value: must be non-negative".to_string()
             ))
         );
@@ -242,13 +303,62 @@ mod tests {
     }
 
     #[test]
-    fn test_rand_jitter() {
-        let ref_times =
-            rand_cyclic(5, 50.0, 1.0, SEED).expect("Failed to generate periodic spike train");
-        println!("nominal firing times: {:?}", ref_times);
+    fn test_rand_cyclic_corner_cases() {
+        // Test with period close to refractory period
+        let small_period = REFRACTORY_PERIOD + 1e-6;
+        let ftimes = rand_cyclic(10, small_period, 1.0, SEED).unwrap();
+        assert!(ftimes.iter().all(|ctimes| ctimes.len() <= 1)); // At most one spike per neuron
+        assert!(ftimes
+            .iter()
+            .all(|ctimes| ctimes.iter().all(|&t| t >= 0.0 && t < small_period)));
 
-        let times = rand_jitter(&ref_times, f64::NEG_INFINITY, f64::INFINITY, 0.1, SEED).unwrap();
-        assert!(times.iter().all(|ctimes| ctimes.iter().tuple_windows().all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
+        // Test with very high firing rate
+        let high_rate = 1e9;
+        let ftimes = rand_cyclic(10, 10.0, high_rate, SEED).unwrap();
+        assert!(ftimes.iter().all(|ctimes| !ctimes.is_empty())); // Each neuron should spike
+        assert!(ftimes.iter().all(|ctimes| ctimes
+            .iter()
+            .tuple_windows()
+            .all(|(t1, t2)| t2 - t1 >= REFRACTORY_PERIOD)));
+
+        // Test with large number of neurons
+        let large_neurons = 10_000;
+        let ftimes = rand_cyclic(large_neurons, 100.0, 1.0, SEED).unwrap();
+        assert_eq!(ftimes.len(), large_neurons);
+        assert!(ftimes
+            .iter()
+            .all(|ctimes| ctimes.iter().all(|&t| t >= 0.0 && t < 100.0)));
+
+        // Test with very large period
+        let large_period = 1e6;
+        let ftimes = rand_cyclic(10, large_period, 0.1, SEED).unwrap();
+        assert!(ftimes
+            .iter()
+            .all(|ctimes| ctimes.iter().all(|&t| t >= 0.0 && t < large_period)));
+        assert!(ftimes.iter().all(|ctimes| ctimes
+            .iter()
+            .tuple_windows()
+            .all(|(t1, t2)| t2 - t1 >= REFRACTORY_PERIOD)));
+    }
+
+    #[test]
+    fn test_rand_jitter() {
+        let rtimes =
+            rand_cyclic(5, 50.0, 1.0, SEED).expect("Failed to generate periodic spike train");
+        assert!(rtimes.iter().all(|ctimes| ctimes
+            .iter()
+            .tuple_windows()
+            .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
+
+        let times = rand_jitter(&rtimes, 0.0, 50.0, 1.0, SEED).unwrap();
+        println!("{:?}", times);
+        assert!(times.iter().all(|ctimes| ctimes
+            .iter()
+            .tuple_windows()
+            .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
+
+        let times = rand_jitter(&rtimes, 0.0, 50.0, 100.0, SEED).unwrap();
+        println!("{:?}", times);
     }
 
     #[test]

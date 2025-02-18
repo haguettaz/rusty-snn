@@ -1,15 +1,15 @@
 # ⚡️piking Neural Network - A Rust Implementation 🦀 
 
-We consider (continuous-time) spiking neural networks and their use as robust memorizers of arbitrary spike trains. 
+We consider (continuous-time) spiking neural networks and their use as robust memorizers of multi-channel spike trains. 
 We refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166) for details. 
 
 The implementation is based on the [Rust programming language](https://www.rust-lang.org/).
-This language was designed with several key goals, which revolve around improving safety, performance, and concurrency.
+This language was designed with several key goals, which revolve around improving safety, performance, and concurrency.[^1]
 
 ## Installation
 
 To install Rust, follow the instructions on the [official website](https://www.rust-lang.org/tools/install).
-The installation includes the Rust compiler, Cargo (the Rust package manager) and the Rust standard library.
+The installation includes the Rust compiler, Cargo (the Rust package manager), and the Rust standard library.
 
 ### Building from Source 
 
@@ -17,7 +17,8 @@ To build the project from source, clone the repository and execute the following
 ```bash 
 cargo build --release 
 ``` 
-You can also generate the documentation by running: 
+
+You can access the rusty-snn documentation locally, just build it:
 ```bash 
 cargo doc --open 
 ```

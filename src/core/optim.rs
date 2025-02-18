@@ -6,8 +6,10 @@ use crate::core::utils::{TimeInterval, TimeIntervalUnion};
 use crate::core::REFRACTORY_PERIOD;
 use crate::error::SNNError;
 
-/// The tolerance for a constraint to be considered as satisfied, c.f. [FeasibilityTol](https://docs.gurobi.com/projects/optimizer/en/current/reference/parameters.html#parameterfeasibilitytol)
-pub const FEASIBILITY_TOL: f64 = 1e-6;
+/// The tolerance for a constraint to be considered as satisfied by the Gurobi solver, c.f. [FeasibilityTol](https://docs.gurobi.com/projects/optimizer/en/current/reference/parameters.html#parameterfeasibilitytol)
+pub const GRB_FEASIBILITY_TOL: f64 = 1e-6;
+/// The tolerance for a constraint to be considered as satisfied during the refinement process.
+pub const REF_FEASIBILITY_TOL: f64 = 1e-5;
 /// The maximum number of new constraints to be added to the model during the refinement.
 pub const MAX_NEW_CSTRS: usize = 1;
 /// The maximum number of iterations for the memorization process.
@@ -37,7 +39,7 @@ impl Objective {
             "l1" => Ok(Objective::L1),
             "l2" => Ok(Objective::L2),
             "linf" => Ok(Objective::LInfinity),
-            _ => Err(SNNError::InvalidParameters("Invalid objective".to_string())),
+            _ => Err(SNNError::InvalidParameter("Invalid objective".to_string())),
         }
     }
 }
@@ -190,7 +192,7 @@ pub fn set_grb_model(name: &str, log_file: &str) -> Result<grb::Model, SNNError>
         .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
     env.set(param::LogFile, log_file.to_string())
         .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-    env.set(param::FeasibilityTol, FEASIBILITY_TOL)
+    env.set(param::FeasibilityTol, GRB_FEASIBILITY_TOL)
         .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
     let env: Env = env
         .start()
@@ -205,7 +207,7 @@ pub fn set_grb_vars(
 ) -> Result<Vec<grb::Var>, SNNError> {
     let (min_weight, max_weight) = lim_weights;
     if !(min_weight <= max_weight) {
-        return Err(SNNError::InvalidParameters(
+        return Err(SNNError::InvalidParameter(
             "Invalid weight limits".to_string(),
         ));
     }
@@ -235,50 +237,43 @@ pub fn set_grb_objective(
 ) -> Result<(), SNNError> {
     match objective {
         Objective::None => (),
-        Objective::L0 => {
-            let norm_var =
-                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-            model
-                .add_genconstr_norm("0-norm", norm_var, weights.clone(), Norm::L0)
-                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-            model
-                .set_objective(norm_var, Minimize)
-                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-        },
+        Objective::L0 => Err(SNNError::NotImplemented(
+            "L0 regularization is not implemented".to_string(),
+        ))?,
+
         Objective::L1 => {
-            let norm_var =
-                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            let mut obj_expr = grb::expr::LinExpr::new();
+            for (i, &var) in weights.iter().enumerate() {
+                let slack = add_ctsvar!(model).unwrap();
+                obj_expr.add_term(1.0, slack);
+
+                model
+                    .add_constr(format!("min_slack_{}", i).as_str(), c!(var >= -slack))
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+
+                model
+                    .add_constr(format!("max_slack_{}", i).as_str(), c!(var <= slack))
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            }
             model
-                .add_genconstr_norm("1-norm", norm_var, weights.clone(), Norm::L1)
+                .set_objective(obj_expr, Minimize)
                 .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-            model
-                .set_objective(norm_var, Minimize)
-                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-        },
+        }
         Objective::L2 => {
-            let norm_var =
-                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            let mut obj_expr = grb::expr::QuadExpr::new();
+            for &var in weights.iter() {
+                obj_expr.add_qterm(1.0, var, var);
+            }
             model
-                .add_genconstr_norm("2-norm", norm_var, weights.clone(), Norm::L2)
+                .set_objective(obj_expr, Minimize)
                 .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-            model
-                .set_objective(norm_var, Minimize)
-                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-        },
-        Objective::LInfinity => {
-            let norm_var =
-                add_ctsvar!(model).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-            model
-                .add_genconstr_norm("infinity-norm", norm_var, weights.clone(), Norm::LInfinity)
-                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-            model
-                .set_objective(norm_var, Minimize)
-                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
-        },
+        }
+        Objective::LInfinity => Err(SNNError::NotImplemented(
+            "LInfinity regularization is not implemented".to_string(),
+        ))?,
     }
 
     Ok(())
-
 }
 
 #[cfg(test)]

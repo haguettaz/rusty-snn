@@ -1,23 +1,27 @@
 //! Network-related module.
 use core::f64;
-use itertools::izip;
+use itertools::{izip, Itertools};
+use lazy_static::lazy_static;
 use log;
-// use rand::distributions::{Distribution, Uniform}
-use itertools::Itertools;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{rngs::StdRng, SeedableRng};
 use rand_distr::{Distribution, Uniform};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::neuron::{Input, InputSpikeTrain, Neuron};
 use crate::core::optim::{Objective, TimeTemplate};
-// use crate::core::spikes::MultiChannelCyclicSpikeTrain;
 use crate::core::utils::TimeInterval;
 use crate::error::SNNError;
 
-/// Minimum number of neurons to parallelize the computation.
-pub const MIN_NEURONS_PAR: usize = 10;
+lazy_static! {
+    /// Minimum number of neurons to parallelize the computation.
+    pub static ref MIN_NEURONS_PAR: usize = {
+        std::env::var("RUSTY_SNN_MIN_NEURONS_PAR")
+            .unwrap_or("10".to_string())
+            .parse::<usize>()
+            .unwrap()
+    };
+}
 
 /// A connection between two neurons.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -43,6 +47,32 @@ impl Connection {
         }
     }
 
+    fn rand_delays_iter(
+        lim_delays: (f64, f64),
+        seed: u64,
+    ) -> Result<rand_distr::Iter<Uniform<f64>, StdRng, f64>, SNNError> {
+        if lim_delays.0 < 0.0 {
+            return Err(SNNError::InvalidParameter(
+                "Connection delay must be non-negative".to_string(),
+            ));
+        }
+        let delay_rng = StdRng::seed_from_u64(seed);
+        let delay_dist = Uniform::new(lim_delays.0, lim_delays.1).map_err(|e| {
+            SNNError::InvalidParameter(format!("Invalid delay distribution: {}", e))
+        })?;
+        Ok(delay_dist.sample_iter(delay_rng))
+    }
+
+    fn rand_ids_iter(
+        lim_ids: (usize, usize),
+        seed: u64,
+    ) -> Result<rand_distr::Iter<Uniform<usize>, StdRng, usize>, SNNError> {
+        let id_rng = StdRng::seed_from_u64(seed);
+        let id_dist = Uniform::new(lim_ids.0, lim_ids.1)
+            .map_err(|e| SNNError::InvalidParameter(format!("Invalid id distribution: {}", e)))?;
+        Ok(id_dist.sample_iter(id_rng))
+    }
+
     /// A random collection of connections between neurons, where every neurons has the same number of inputs.
     pub fn rand_fin(
         num_inputs: usize,
@@ -51,26 +81,14 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        if lim_delays.0 < 0.0 {
-            return Err(SNNError::InvalidParameters(
-                "Connection delay must be non-negative".to_string(),
-            ));
-        }
-        let mut delay_rng = StdRng::seed_from_u64(seed);
-        let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
-            SNNError::InvalidParameters(format!("Invalid delay distribution: {}", e))
-        })?;
-
-        let mut source_rng = StdRng::seed_from_u64(seed);
-        let source_dist = Uniform::new(lim_source_ids.0, lim_source_ids.1).map_err(|e| {
-            SNNError::InvalidParameters(format!("Invalid source distribution: {}", e))
-        })?;
+        let rand_delays_iter = Self::rand_delays_iter(lim_delays, seed)?;
+        let rand_source_ids_iter = Self::rand_ids_iter(lim_source_ids, seed)?;
 
         let connections: Vec<Connection> = izip!(
-            source_dist.sample_iter(&mut source_rng),
+            rand_source_ids_iter,
             (lim_target_ids.0..lim_target_ids.1)
                 .flat_map(|target_id| std::iter::repeat(target_id).take(num_inputs)),
-            delay_dist.sample_iter(&mut delay_rng)
+            rand_delays_iter
         )
         .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, 0.0, delay))
         .collect();
@@ -86,26 +104,14 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        if lim_delays.0 < 0.0 {
-            return Err(SNNError::InvalidParameters(
-                "Connection delay must be non-negative".to_string(),
-            ));
-        }
-        let mut delay_rng = StdRng::seed_from_u64(seed);
-        let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
-            SNNError::InvalidParameters(format!("Invalid delay distribution: {}", e))
-        })?;
-
-        let mut target_rng = StdRng::seed_from_u64(seed);
-        let target_dist = Uniform::new(lim_target_ids.0, lim_target_ids.1).map_err(|e| {
-            SNNError::InvalidParameters(format!("Invalid target distribution: {}", e))
-        })?;
+        let rand_delays_iter = Self::rand_delays_iter(lim_delays, seed)?;
+        let rand_target_ids_iter = Self::rand_ids_iter(lim_target_ids, seed)?;
 
         let connections: Vec<Connection> = izip!(
             (lim_source_ids.0..lim_source_ids.1)
-                .flat_map(|source_id| std::iter::repeat(source_id).take(num_outputs)),
-            target_dist.sample_iter(&mut target_rng),
-            delay_dist.sample_iter(&mut delay_rng)
+                .flat_map(|target_id| std::iter::repeat(target_id).take(num_outputs)),
+            rand_target_ids_iter,
+            rand_delays_iter
         )
         .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, 0.0, delay))
         .collect();
@@ -121,7 +127,10 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        todo!();
+        // FIXME: Implement random connection generation with fixed in/out degree
+        // Should follow similar pattern to rand_fin and rand_fout but ensure
+        // each neuron has exactly num_inputs_outputs inputs and outputs
+        todo!()
     }
 
     /// A random collection of connections between neurons, where every neuron is connected to every other neuron (including itself).
@@ -132,13 +141,13 @@ impl Connection {
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
         if lim_delays.0 < 0.0 {
-            return Err(SNNError::InvalidParameters(
+            return Err(SNNError::InvalidParameter(
                 "Connection delay must be non-negative".to_string(),
             ));
         }
         let mut delay_rng = StdRng::seed_from_u64(seed);
         let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
-            SNNError::InvalidParameters(format!("Invalid delay distribution: {}", e))
+            SNNError::InvalidParameter(format!("Invalid delay distribution: {}", e))
         })?;
 
         let connections: Vec<Connection> = izip!(
@@ -155,7 +164,7 @@ impl Connection {
     }
 }
 
-/// A network of spiking neurons. 
+/// A network of spiking neurons.
 pub trait Network {
     type InputSpikeTrain: InputSpikeTrain + std::fmt::Debug;
     type Neuron: Neuron<InputSpikeTrain = Self::InputSpikeTrain>;
@@ -220,7 +229,7 @@ pub trait Network {
             .collect()
     }
 
-    fn connections_ref(&self) -> Vec<&Vec<Input>> {
+    fn connections_ref(&self) -> Vec<&[Input]> {
         self.neurons_iter().map(|neuron| neuron.inputs()).collect()
     }
 
@@ -230,54 +239,15 @@ pub trait Network {
     }
 
     /// Add a connection to the network.
-    fn add_connection(&mut self, connection: &Connection) {
+    fn push_connection(&mut self, connection: &Connection) {
         if let Some(neuron) = self.neuron_mut(connection.target_id) {
-            neuron.add_input(connection.source_id, connection.weight, connection.delay)
+            neuron.push_input(connection.source_id, connection.weight, connection.delay)
         }
     }
 
     /// Returns the minimum delay in spike propagation between each pair of neurons in the network.
     /// The delay from a neuron to itself is zero (due to its refractory period).
-    /// Otherwise, the delay is the minimum delay between all possible paths connecting the two neurons.
-    /// They are computed using the [Floyd-Warshall algorithm](https://en.wikipedia.org/wiki/Floyd–Warshall_algorithm).
-    fn min_delays(&self) -> Vec<Vec<f64>> {
-        let mut min_delays = self
-            .neurons_iter()
-            .map(|target_neuron| {
-                self.neurons_iter()
-                    .map(|source_neuron| {
-                        if target_neuron.id() == source_neuron.id() {
-                            0.0
-                        } else {
-                            target_neuron
-                                .inputs_iter()
-                                .filter(|input| input.source_id == source_neuron.id())
-                                .map(|input| input.delay)
-                                .min_by(|a, b| a.partial_cmp(b).expect("Invalid delay"))
-                                .unwrap_or(f64::INFINITY)
-                        }
-                    })
-                    .collect::<Vec<f64>>()
-            })
-            .collect::<Vec<Vec<f64>>>();
-
-        for inter_neuron in self.neurons_iter() {
-            for target_neuron in self.neurons_iter() {
-                for source_neuron in self.neurons_iter() {
-                    let source_target_delay = min_delays[target_neuron.id()][source_neuron.id()];
-                    let source_inter_target_delay = min_delays[inter_neuron.id()]
-                        [source_neuron.id()]
-                        + min_delays[target_neuron.id()][inter_neuron.id()];
-                    if source_target_delay > source_inter_target_delay {
-                        min_delays[target_neuron.id()][source_neuron.id()] =
-                            source_inter_target_delay;
-                    }
-                }
-            }
-        }
-
-        min_delays
-    }
+    fn min_delay_from_to(&mut self, source_id: usize, target_id: usize) -> f64;
 
     /// Optimize the synaptic weights of the network to memorize the given spike trains.
     fn memorize_cyclic(
@@ -290,7 +260,7 @@ pub trait Network {
         half_width: f64,
         objective: Objective,
     ) -> Result<(), SNNError> {
-        if self.num_neurons() >= MIN_NEURONS_PAR {
+        if self.num_neurons() >= *MIN_NEURONS_PAR {
             self.neurons_par_iter_mut().try_for_each(|neuron| {
                 if neuron.num_inputs() > 0 {
                     log::info!("Optimizing neuron {}", neuron.id());
@@ -379,17 +349,11 @@ pub trait Network {
             let mut last_log_time = *start;
             let log_interval = total_duration / 100.0;
 
-            // Compute the minimum delays between each pair of neurons using Floyd-Warshall algorithm (O(L^3))
-            // This is done only once for the whole simulation
-            // It is used to accept the largest number of spikes at each time step
-            let min_delays = self.min_delays();
-            log::info!("Minimum propagation delays computed successfully!");
-
             // Initialize the neurons with
             // 1. The random number generators and the threshold noise
             // 2. The input spike trains
             let network_spike_train = self.spike_train_clone();
-            if self.num_neurons() > MIN_NEURONS_PAR {
+            if self.num_neurons() > *MIN_NEURONS_PAR {
                 self.neurons_par_iter_mut().for_each(|neuron| {
                     neuron.init_threshold_sampler(threshold_noise);
                     neuron.sample_threshold();
@@ -406,24 +370,37 @@ pub trait Network {
             let mut time = *start;
             while time < *end {
                 // Collect the candidate next spikes from all neurons, using parallel computation if the number of neurons is large
-                let mut candidate_new_times = if self.num_neurons() > MIN_NEURONS_PAR {
+                // The candidate spikes are sorted by neuron ID
+                let mut candidate_new_times = if self.num_neurons() > *MIN_NEURONS_PAR {
                     self.neurons_par_iter()
                         .map(|neuron| match neuron.next_spike(time) {
-                            Some(time) => (neuron.id(), Some(time)),
+                            Some(time) => {
+                                if time <= *end {
+                                    (neuron.id(), Some(time))
+                                } else {
+                                    (neuron.id(), None)
+                                }
+                            }
                             None => (neuron.id(), None),
                         })
                         .collect::<Vec<(usize, Option<f64>)>>()
                 } else {
                     self.neurons_iter()
                         .map(|neuron| match neuron.next_spike(time) {
-                            Some(time) => (neuron.id(), Some(time)),
+                            Some(time) => {
+                                if time <= *end {
+                                    (neuron.id(), Some(time))
+                                } else {
+                                    (neuron.id(), None)
+                                }
+                            }
                             None => (neuron.id(), None),
                         })
                         .collect::<Vec<(usize, Option<f64>)>>()
                 };
                 candidate_new_times.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-                // Accept as many spikes as possible at the current time and sort the spikes by neuron ID
+                // Accept as many spikes as possible at the current time
                 let new_times = candidate_new_times
                     .iter()
                     .map(|(id, time)| match time {
@@ -435,7 +412,7 @@ pub trait Network {
                                     None => None,
                                 })
                                 .all(|(other_id, other_time)| {
-                                    *time <= other_time + min_delays[*other_id][*id]
+                                    *time <= other_time + self.min_delay_from_to(*other_id, *id)
                                 })
                             {
                                 Some(*time)
@@ -462,7 +439,7 @@ pub trait Network {
 
                 // Update the neuron internal state: 1) fire the accepted spikes and 2) update the input spike trains
                 // let new_spike_train = MultiChannelSpikeTrain::new_from(new_times);
-                if self.num_neurons() > MIN_NEURONS_PAR {
+                if self.num_neurons() > *MIN_NEURONS_PAR {
                     self.neurons_par_iter_mut().for_each(|neuron| {
                         if let Some(ft) = new_times[neuron.id()] {
                             neuron.fire(ft);

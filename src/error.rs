@@ -18,6 +18,8 @@ pub enum SNNError {
     InvalidNumSpikeWeights(String),
     /// Error for out of bounds access, e.g., neuron not found.
     OutOfBounds(String),
+    /// Not implemented operation.
+    NotImplemented(String),
     /// Error for invalid operation.
     InvalidOperation(String),
     /// Optimization error, e.g., failure while using the Gurobi solver.
@@ -25,7 +27,7 @@ pub enum SNNError {
     /// Convergence error from iterative algorithms
     ConvergenceError(String),
     /// Error for invalid parameters
-    InvalidParameters(String),
+    InvalidParameter(String),
     /// Error for error while computing the basis of the dominant eigenspace of the jitter linear propagation using Gram-Schmidt orthogonalization.
     GramSchmidtError(String),
     /// Error for invalid channel.
@@ -44,8 +46,9 @@ impl fmt::Display for SNNError {
                 write!(f, "Index out of bounds: {}", e)
             }
             SNNError::OptimizationError(e) => write!(f, "Optimization error: {}", e),
+            SNNError::NotImplemented(e) => write!(f, "Not implemented: {}", e),
             SNNError::ConvergenceError(e) => write!(f, "Convergence error: {}", e),
-            SNNError::InvalidParameters(e) => write!(f, "Invalid parameters: {}", e),
+            SNNError::InvalidParameter(e) => write!(f, "Invalid parameters: {}", e),
             SNNError::GramSchmidtError(e) => write!(f, "Gram-Schmidt orthogonalization error: {}", e),
             SNNError::InvalidOperation(e) => write!(f, "Invalid operation: {}", e),
             SNNError::InvalidChannel(e) => write!(f, "Invalid channel: {}", e),
