@@ -17,9 +17,12 @@ lazy_static! {
     /// Minimum number of neurons to parallelize the computation.
     pub static ref MIN_NEURONS_PAR: usize = {
         std::env::var("RUSTY_SNN_MIN_NEURONS_PAR")
-            .unwrap_or("10".to_string())
+            .unwrap_or("50".to_string())
             .parse::<usize>()
-            .unwrap()
+            .unwrap_or_else(|_| {
+                log::warn!("Invalid value for RUSTY_SNN_MIN_NEURONS_PAR. Using default value 50.");
+                50
+            })
     };
 }
 
@@ -47,7 +50,8 @@ impl Connection {
         }
     }
 
-    fn rand_delays_iter(
+    /// Returns an iterator over randomly generated real delays.
+    fn rand_delays(
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<rand_distr::Iter<Uniform<f64>, StdRng, f64>, SNNError> {
@@ -63,7 +67,8 @@ impl Connection {
         Ok(delay_dist.sample_iter(delay_rng))
     }
 
-    fn rand_ids_iter(
+    /// Returns an iterator over randomly generated integer IDs.
+    fn rand_ids(
         lim_ids: (usize, usize),
         seed: u64,
     ) -> Result<rand_distr::Iter<Uniform<usize>, StdRng, usize>, SNNError> {
@@ -71,6 +76,20 @@ impl Connection {
         let id_dist = Uniform::new(lim_ids.0, lim_ids.1)
             .map_err(|e| SNNError::InvalidParameter(format!("Invalid id distribution: {}", e)))?;
         Ok(id_dist.sample_iter(id_rng))
+    }
+
+    /// Generate a collection of connections between neurons.
+    fn generate_connections(
+        source_ids: impl Iterator<Item = usize>,
+        target_ids: impl Iterator<Item = usize>,
+        weights: impl Iterator<Item = f64>,
+        delays: impl Iterator<Item = f64>,
+    ) -> Vec<Connection> {
+        izip!(source_ids, target_ids, weights, delays)
+            .map(|(source_id, target_id, weight, delay)| {
+                Connection::new(source_id, target_id, weight, delay)
+            })
+            .collect()
     }
 
     /// A random collection of connections between neurons, where every neurons has the same number of inputs.
@@ -81,17 +100,14 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        let rand_delays_iter = Self::rand_delays_iter(lim_delays, seed)?;
-        let rand_source_ids_iter = Self::rand_ids_iter(lim_source_ids, seed)?;
+        let source_ids = Self::rand_ids(lim_source_ids, seed)?;
+        let target_ids = (lim_target_ids.0..lim_target_ids.1)
+            .flat_map(|target_id| std::iter::repeat(target_id).take(num_inputs));
+        let weights = std::iter::repeat(0.0);
+        let delays = Self::rand_delays(lim_delays, seed)?;
 
-        let connections: Vec<Connection> = izip!(
-            rand_source_ids_iter,
-            (lim_target_ids.0..lim_target_ids.1)
-                .flat_map(|target_id| std::iter::repeat(target_id).take(num_inputs)),
-            rand_delays_iter
-        )
-        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, 0.0, delay))
-        .collect();
+        let connections: Vec<Connection> =
+            Self::generate_connections(source_ids, target_ids, weights, delays);
 
         Ok(connections)
     }
@@ -104,17 +120,14 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        let rand_delays_iter = Self::rand_delays_iter(lim_delays, seed)?;
-        let rand_target_ids_iter = Self::rand_ids_iter(lim_target_ids, seed)?;
+        let source_ids = (lim_source_ids.0..lim_source_ids.1)
+            .flat_map(|source_id| std::iter::repeat(source_id).take(num_outputs));
+        let target_ids = Self::rand_ids(lim_target_ids, seed)?;
+        let weights = std::iter::repeat(0.0);
+        let delays = Self::rand_delays(lim_delays, seed)?;
 
-        let connections: Vec<Connection> = izip!(
-            (lim_source_ids.0..lim_source_ids.1)
-                .flat_map(|target_id| std::iter::repeat(target_id).take(num_outputs)),
-            rand_target_ids_iter,
-            rand_delays_iter
-        )
-        .map(|(source_id, target_id, delay)| Connection::new(source_id, target_id, 0.0, delay))
-        .collect();
+        let connections: Vec<Connection> =
+            Self::generate_connections(source_ids, target_ids, weights, delays);
 
         Ok(connections)
     }
@@ -263,7 +276,6 @@ pub trait Network {
         if self.num_neurons() >= *MIN_NEURONS_PAR {
             self.neurons_par_iter_mut().try_for_each(|neuron| {
                 if neuron.num_inputs() > 0 {
-                    log::info!("Optimizing neuron {}", neuron.id());
                     let mut time_templates: Vec<TimeTemplate> =
                         Vec::with_capacity(spike_trains.len());
                     let mut input_spike_trains: Vec<Self::InputSpikeTrain> =
@@ -294,14 +306,13 @@ pub trait Network {
                         objective,
                     )
                 } else {
-                    log::info!("Neuron {} has no synaptic weights to optimize", neuron.id());
+                    log::trace!("Neuron {} has no synaptic weights to optimize", neuron.id());
                     Ok(())
                 }
             })
         } else {
             self.neurons_iter_mut().try_for_each(|neuron| {
                 if neuron.num_inputs() > 0 {
-                    log::info!("Optimizing neuron {}", neuron.id());
                     let mut time_templates: Vec<TimeTemplate> =
                         Vec::with_capacity(spike_trains.len());
                     let mut input_spike_trains: Vec<Self::InputSpikeTrain> =
@@ -332,7 +343,7 @@ pub trait Network {
                         objective,
                     )
                 } else {
-                    log::info!("Neuron {} has no synaptic weights to optimize", neuron.id());
+                    log::trace!("Neuron {} has no synaptic weights to optimize", neuron.id());
                     Ok(())
                 }
             })
@@ -340,28 +351,26 @@ pub trait Network {
     }
 
     /// Simulate the network activity on the specified time interval.
-    fn run(&mut self, time_interval: &TimeInterval, threshold_noise: f64) -> Result<(), SNNError> {
+    fn run(
+        &mut self,
+        time_interval: &TimeInterval,
+        threshold_noise: f64,
+        seed: u64,
+    ) -> Result<(), SNNError> {
         if let TimeInterval::Closed { start, end } = time_interval {
-            log::info!("Running network simulation from {} to {}", start, end);
-
-            // For logging purposes
-            let total_duration = end - start;
-            let mut last_log_time = *start;
-            let log_interval = total_duration / 100.0;
-
             // Initialize the neurons with
             // 1. The random number generators and the threshold noise
             // 2. The input spike trains
             let network_spike_train = self.spike_train_clone();
             if self.num_neurons() > *MIN_NEURONS_PAR {
                 self.neurons_par_iter_mut().for_each(|neuron| {
-                    neuron.init_threshold_sampler(threshold_noise);
+                    neuron.init_threshold_sampler(threshold_noise, seed);
                     neuron.sample_threshold();
                     neuron.init_input_spike_train(&network_spike_train);
                 })
             } else {
                 self.neurons_iter_mut().for_each(|neuron| {
-                    neuron.init_threshold_sampler(threshold_noise);
+                    neuron.init_threshold_sampler(threshold_noise, seed);
                     neuron.sample_threshold();
                     neuron.init_input_spike_train(&network_spike_train);
                 })
@@ -453,22 +462,8 @@ pub trait Network {
                         neuron.receive_spikes(&new_times);
                     })
                 };
-
-                // Check if it's time to log progress
-                if time - last_log_time >= log_interval {
-                    let progress = ((time - start) / total_duration) * 100.0;
-                    log::debug!(
-                        "Simulation progress: {:.2}% (Time: {:.2}/{:.2})",
-                        progress,
-                        time,
-                        end
-                    );
-                    last_log_time = time;
-                }
             }
         }
-
-        log::info!("Simulation completed successfully!");
         Ok(())
     }
 }

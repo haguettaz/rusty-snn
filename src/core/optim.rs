@@ -33,12 +33,12 @@ pub enum Objective {
 impl Objective {
     /// Returns the objective function from a string.
     pub fn from_str(s: &str) -> Result<Self, SNNError> {
-        match s {
+        match s.to_lowercase().as_str() {
             "none" => Ok(Objective::None),
             "l0" => Ok(Objective::L0),
             "l1" => Ok(Objective::L1),
             "l2" => Ok(Objective::L2),
-            "linf" => Ok(Objective::LInfinity),
+            "linfinity" => Ok(Objective::LInfinity),
             _ => Err(SNNError::InvalidParameter("Invalid objective".to_string())),
         }
     }
@@ -279,6 +279,23 @@ pub fn set_grb_objective(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Test objective from string
+    #[test]
+    fn test_objective_from_str() {
+        assert!(matches!(Objective::from_str("none"), Ok(Objective::None)));
+        assert!(matches!(Objective::from_str("l0"), Ok(Objective::L0)));
+        assert!(matches!(Objective::from_str("l1"), Ok(Objective::L1)));
+        assert!(matches!(Objective::from_str("l2"), Ok(Objective::L2)));
+        assert!(matches!(
+            Objective::from_str("linfinity"),
+            Ok(Objective::LInfinity)
+        ));
+        assert!(matches!(
+            Objective::from_str("invalid"),
+            Err(SNNError::InvalidParameter(_))
+        ));
+    }
 
     #[test]
     fn test_time_template_new_from() {

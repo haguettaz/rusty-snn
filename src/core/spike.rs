@@ -47,6 +47,12 @@ pub fn rand_jitter(
     let mut rng = rgsl::Rng::new(rgsl::RngType::default()).unwrap();
     rng.set(seed as usize);
 
+    if rtimes.iter().any(|rctimes| rctimes.iter().any(|ft| (*ft < start) | (*ft > end))) {
+        return Err(SNNError::InvalidParameter(
+            "Invalid time range: all nominal firing times should be in [start, end]".to_string(),
+        ));
+    }
+
     let mut times = rtimes.clone();
     times
         .iter_mut()
@@ -66,21 +72,21 @@ pub fn rand_jitter(
                             (None, Some(next_i)) => rtnorm(
                                 &mut rng,
                                 start,
-                                rctimes[next_i] - REFRACTORY_PERIOD,
+                                (ctimes[next_i] - REFRACTORY_PERIOD).clamp(start, end),
                                 rctimes[i],
                                 sigma,
                             ),
                             (Some(prev_i), None) => rtnorm(
                                 &mut rng,
-                                rctimes[prev_i] + REFRACTORY_PERIOD,
+                                (ctimes[prev_i] + REFRACTORY_PERIOD).clamp(start, end),
                                 end,
                                 rctimes[i],
                                 sigma,
                             ),
                             (Some(prev_i), Some(next_i)) => rtnorm(
                                 &mut rng,
-                                rctimes[prev_i] + REFRACTORY_PERIOD,
-                                rctimes[next_i] - REFRACTORY_PERIOD,
+                                (ctimes[prev_i] + REFRACTORY_PERIOD).clamp(start, end),
+                                (ctimes[next_i] - REFRACTORY_PERIOD).clamp(start, end),
                                 rctimes[i],
                                 sigma,
                             ),
@@ -97,47 +103,20 @@ pub fn rand_jitter(
                         (ctimes[i], _) = match next_i {
                             None => rtnorm(
                                 &mut rng,
-                                rctimes[prev_i] + REFRACTORY_PERIOD,
+                                (ctimes[prev_i] + REFRACTORY_PERIOD).clamp(start, end),
                                 end,
                                 rctimes[i],
                                 sigma,
                             ),
                             Some(next_i) => rtnorm(
                                 &mut rng,
-                                rctimes[prev_i] + REFRACTORY_PERIOD,
-                                rctimes[next_i] - REFRACTORY_PERIOD,
+                                (ctimes[prev_i] + REFRACTORY_PERIOD).clamp(start, end),
+                                (ctimes[next_i] - REFRACTORY_PERIOD).clamp(start, end),
                                 rctimes[i],
                                 sigma,
                             ),
                         }
                     });
-
-                // let time = rtnorm(&mut rng, start,
-                // (2..ref_ctimes.len()).step_by(2).for_each(|i| loop {
-                //     let time = ref_ctimes[i] + normal_sampler.sample(&mut rng);
-                //     if (time >= start)
-                //         && (time <= end)
-                //         && (i == 0 || time >= ref_ctimes[i - 1] + REFRACTORY_PERIOD)
-                //         && (i == ref_ctimes.len() - 1
-                //             || time <= ref_ctimes[i + 1] - REFRACTORY_PERIOD)
-                //     {
-                //         ctimes[i] = time;
-                //         break;
-                //     }
-                // });
-
-                // (1..ref_ctimes.len()).step_by(2).for_each(|i| loop {
-                //     let time = ref_ctimes[i] + normal_sampler.sample(&mut rng);
-                //     if (time >= start)
-                //         && (time <= end)
-                //         && time >= ref_ctimes[i - 1] + REFRACTORY_PERIOD
-                //         && (i == ref_ctimes.len() - 1
-                //             || time <= ref_ctimes[i + 1] - REFRACTORY_PERIOD)
-                //     {
-                //         ctimes[i] = time;
-                //         break;
-                //     }
-                // });
             }
         });
 
@@ -172,7 +151,7 @@ pub fn rand_cyclic(
         .enumerate()
         .fold(0.0, |acc, (n, p)| acc + n as f64 * p);
     let p_num_spikes =
-        WeightedIndex::new(weights).map_err(|e| SNNError::InvalidNumSpikeWeights(e.to_string()))?;
+        WeightedIndex::new(weights).map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
 
     let uniform_ref =
         Uniform::new(0.0, period).map_err(|e| SNNError::InvalidParameter(e.to_string()))?;
@@ -216,7 +195,7 @@ pub fn rand_cyclic(
     }
 
     let num_spikes = times.iter().map(|ctimes| ctimes.len()).sum::<usize>();
-    log::info!(
+    log::trace!(
         "{} spikes sampled over {} channels (expected number of spikes per channel is {})",
         num_spikes,
         num_neurons,
@@ -344,21 +323,35 @@ mod tests {
     #[test]
     fn test_rand_jitter() {
         let rtimes =
-            rand_cyclic(5, 50.0, 1.0, SEED).expect("Failed to generate periodic spike train");
+            rand_cyclic(1, 100.0, 1.0, SEED).expect("Failed to generate periodic spike train");
         assert!(rtimes.iter().all(|ctimes| ctimes
             .iter()
             .tuple_windows()
             .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
 
-        let times = rand_jitter(&rtimes, 0.0, 50.0, 1.0, SEED).unwrap();
-        println!("{:?}", times);
+        let times = rand_jitter(&rtimes, 0.0, 100.0, 1.0, SEED).unwrap();
         assert!(times.iter().all(|ctimes| ctimes
             .iter()
             .tuple_windows()
             .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
+        assert!(times
+            .iter()
+            .all(|ctimes| ctimes.iter().all(|ft| (*ft >= 0.0) & (*ft <= 100.0))));
 
-        let times = rand_jitter(&rtimes, 0.0, 50.0, 100.0, SEED).unwrap();
-        println!("{:?}", times);
+        let times = rand_jitter(&rtimes, 0.0, 100.0, 1000.0, SEED).unwrap();
+        assert!(times.iter().all(|ctimes| ctimes
+            .iter()
+            .tuple_windows()
+            .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
+        assert!(times
+            .iter()
+            .all(|ctimes| ctimes.iter().all(|ft| (*ft >= 0.0) & (*ft <= 100.0))));
+
+        let times = rand_jitter(&rtimes, f64::NEG_INFINITY, f64::INFINITY, 1.0, SEED).unwrap();
+        assert!(times.iter().all(|ctimes| ctimes
+            .iter()
+            .tuple_windows()
+            .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
     }
 
     #[test]

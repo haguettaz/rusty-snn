@@ -30,7 +30,7 @@ pub trait Neuron: Sync + Send {
     fn threshold(&self) -> f64;
 
     /// Init the threshold noise sampler.
-    fn init_threshold_sampler(&mut self, sigma: f64);
+    fn init_threshold_sampler(&mut self, sigma: f64, seed: u64);
 
     /// Sample the firing threshold of the neuron, i.e., apply a random deviation to the nominal threshold.
     fn sample_threshold(&mut self);
@@ -113,7 +113,21 @@ pub trait Neuron: Sync + Send {
     /// There is at most one spike per channel.
     fn receive_spikes(&mut self, ftimes: &Vec<Option<f64>>);
 
-    /// Returns the next firing time of the neuron, if any.
+    /// Returns the next time at which the neuron will fire after the given start time, if any.
+    /// This method enforces the refractory period.
+    ///
+    /// # Important
+    /// Multiple spikes cannot occur back-to-back in a single call, as each spike must be
+    /// separated by at least the refractory period. This means that if the neuron has fired
+    /// recently, the earliest possible next spike will be forcibly delayed until after the
+    /// refractory period, regardless of input strength.
+    ///
+    /// # Arguments
+    /// * `start` - The time from which to start looking for the next spike
+    ///
+    /// # Returns
+    /// * `Some(time)` - The time of the next spike if one is found
+    /// * `None` - If no future spike is detected
     fn next_spike(&self, mut start: f64) -> Option<f64> {
         if let Some(last) = self.last_ftime() {
             start = last + REFRACTORY_PERIOD;

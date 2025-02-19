@@ -17,7 +17,35 @@ use crate::error::SNNError;
 
 const RIGHT_LIMIT: f64 = 1e-12;
 
-/// A spiking neuron with alpha-shaped synaptic kernels.
+/// A spiking neuron model that uses alpha-shaped synaptic kernels to process incoming spikes.
+///
+/// The alpha kernel h(t) models the post-synaptic potential in response to input spikes and has the form:
+/// ```text
+/// h(t) = (t/τ)exp(1 - t/τ) for t ≥ 0
+///      = 0              for t < 0
+/// ```
+/// where τ is the time constant that determines the kernel's temporal scale.
+/// The current implementation only supports τ = 1.
+///
+/// # Properties
+/// - Continuous and differentiable for all t > 0
+/// - Reaches maximum value of 1 at t = τ
+/// - Natural model for rise and decay of post-synaptic potentials
+/// - Zero response to negative time differences (causality)
+///
+/// # Implementation Notes
+/// - Uses Lambert W function for efficient threshold crossing detection
+/// - Maintains numerical stability through careful handling of exponentials
+/// - Supports noisy thresholds through optional Gaussian sampling
+///
+/// # Fields
+/// - `id`: Unique identifier for the neuron
+/// - `inputs`: Vector of synaptic inputs with weights and delays
+/// - `threshold`: Firing threshold for action potential generation
+/// - `ftimes`: Vector of past firing times
+/// - `input_spike_train`: Collection of incoming spikes with alpha-kernel processing
+/// - `threshold_sampler`: Optional noise generator for the threshold
+/// - `rng`: Random number generator for stochastic components
 #[derive(Debug, Clone, Serialize)]
 pub struct AlphaNeuron {
     // The neuron ID.
@@ -103,7 +131,8 @@ impl Neuron for AlphaNeuron {
         self.threshold
     }
 
-    fn init_threshold_sampler(&mut self, sigma: f64) {
+    fn init_threshold_sampler(&mut self, sigma: f64, seed: u64) {
+        self.rng = ChaCha8Rng::seed_from_u64(seed);
         self.threshold_sampler = Normal::new(FIRING_THRESHOLD, sigma).unwrap();
     }
 
