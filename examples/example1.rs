@@ -5,7 +5,6 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use sha2::{Digest, Sha256};
-use std::path::Path;
 
 use rusty_snn::alpha::metrics::AlphaLinearJitterPropagator;
 use rusty_snn::alpha::network::AlphaNetwork;
@@ -67,7 +66,7 @@ struct Args {
 
 fn main() -> Result<(), SNNError> {
     let args = Args::parse();
-
+    
     let mut hasher = Sha256::new();
     hasher.update(format!("{:?}", args));
     let hash = hasher.finalize();
@@ -88,9 +87,11 @@ fn main() -> Result<(), SNNError> {
 
     log::info!("{:?}", args);
 
+    // Sample the (periodic) spike train
     let rftimes = spike::rand_cyclic(args.num_neurons, args.period, args.firing_rate, args.seed)?;
     log::info!("Spike train sampling done!");
 
+    // Sample the network
     let mut network = AlphaNetwork::rand_fin(
         args.num_neurons,
         args.num_inputs,
@@ -99,6 +100,7 @@ fn main() -> Result<(), SNNError> {
     )?;
     log::info!("Network sampling: done!");
 
+    // Optimize the network weights on the spike train
     network.memorize_cyclic(
         &vec![&rftimes],
         &vec![args.period],
@@ -113,6 +115,7 @@ fn main() -> Result<(), SNNError> {
     network.save_to(&network_path)?;
     log::info!("Network saving: done! Saved to {}", network_path);
 
+    // Evaluate small-jitter spectral radius
     let jitter_propagator =
         AlphaLinearJitterPropagator::new(network.connections_ref(), &rftimes, args.period);
     let phi = jitter_propagator.spectral_radius(args.seed)?;
@@ -122,9 +125,11 @@ fn main() -> Result<(), SNNError> {
         jitter_propagator.dim()
     );
 
+    // Initialize the similarity comparator
     let comparator = Similarity::new(rftimes.clone(), args.period)?;
     let channels: Vec<usize> = (0..args.num_neurons).collect();
 
+    // Simulate the network and evaluate the similarity with the memorized spike train
     network.init_ftimes(&rftimes);
     network.run(
         &TimeInterval::new(0.0, (args.num_cycles + 1) as f64 * args.period),

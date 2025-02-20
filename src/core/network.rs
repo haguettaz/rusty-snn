@@ -523,28 +523,28 @@ mod tests {
         assert_eq!(
             connections
                 .iter()
-                .filter(|c| (c.source_id == 0) & (c.target_id == 0))
+                .filter(|c| (c.source_id == 0) && (c.target_id == 0))
                 .count(),
             1
         );
         assert_eq!(
             connections
                 .iter()
-                .filter(|c| (c.source_id == 0) & (c.target_id == 1))
+                .filter(|c| (c.source_id == 0) && (c.target_id == 1))
                 .count(),
             1
         );
         assert_eq!(
             connections
                 .iter()
-                .filter(|c| (c.source_id == 1) & (c.target_id == 0))
+                .filter(|c| (c.source_id == 1) && (c.target_id == 0))
                 .count(),
             1
         );
         assert_eq!(
             connections
                 .iter()
-                .filter(|c| (c.source_id == 1) & (c.target_id == 1))
+                .filter(|c| (c.source_id == 1) && (c.target_id == 1))
                 .count(),
             1
         );

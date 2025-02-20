@@ -336,7 +336,7 @@ mod tests {
             .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
         assert!(times
             .iter()
-            .all(|ctimes| ctimes.iter().all(|ft| (*ft >= 0.0) & (*ft <= 100.0))));
+            .all(|ctimes| ctimes.iter().all(|ft| (*ft >= 0.0) && (*ft <= 100.0))));
 
         let times = rand_jitter(&rtimes, 0.0, 100.0, 1000.0, SEED).unwrap();
         assert!(times.iter().all(|ctimes| ctimes
@@ -345,7 +345,7 @@ mod tests {
             .all(|(ft0, ft1)| *ft0 <= *ft1 + REFRACTORY_PERIOD)));
         assert!(times
             .iter()
-            .all(|ctimes| ctimes.iter().all(|ft| (*ft >= 0.0) & (*ft <= 100.0))));
+            .all(|ctimes| ctimes.iter().all(|ft| (*ft >= 0.0) && (*ft <= 100.0))));
 
         let times = rand_jitter(&rtimes, f64::NEG_INFINITY, f64::INFINITY, 1.0, SEED).unwrap();
         assert!(times.iter().all(|ctimes| ctimes

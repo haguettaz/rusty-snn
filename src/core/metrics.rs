@@ -6,7 +6,6 @@ use log;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rgsl::zeta;
 
 use crate::core::network::Network;
 use crate::core::REFRACTORY_PERIOD;
@@ -58,11 +57,6 @@ impl Similarity {
         Ok(Similarity { rftimes, period })
     }
 
-    // /// The number of channels in the reference spike train.
-    // pub fn num_channels(&self) -> usize {
-    //     self.rftimes.len()
-    // }
-
     /// Extract network spikes, keeping only those on the provided channels and within a single period after min_time, accounting for edge cases
     fn extract_ftimes<'a>(
         &self,
@@ -113,63 +107,8 @@ impl Similarity {
             .collect()
     }
 
-    // fn extract_ftimes(&self, network: &impl Network, channels: &[usize], min_time: f64) -> Vec<&[f64]> {
-    //     channels
-    //         .iter()
-    //         .map(|id| {
-    //             let mut pctimes: Vec<f64> = network
-    //                 .neuron_ref(*id)
-    //                 .unwrap()
-    //                 .ftimes_ref()
-    //                 .iter()
-    //                 .rev()
-    //                 .filter(|ftime| {
-    //                     (**ftime >= min_time - REFRACTORY_PERIOD)
-    //                         & (**ftime < min_time + self.period)
-    //                 })
-    //                 .copied()
-    //                 .collect();
-    //             if (pctimes.len() > 1)
-    //                 & (pctimes[pctimes.len() - 1] + self.period - pctimes[0] < REFRACTORY_PERIOD)
-    //             {
-    //                 pctimes.pop();
-    //             }
-    //             pctimes
-    //         })
-    //         .collect();
-    // }
-
     /// Compute all time shifts between the nominal and the actual spike times.
     fn compute_all_shifts(&self, rftimes: &Vec<&[f64]>, ftimes: &Vec<&[f64]>) -> Vec<Shift> {
-        // // Filter reference spikes to include only those on the provided channels
-        // let rftimes: Vec<&[f64]> = self.extract_rftimes(channels);
-        // let ftimes: Vec<&[f64]> = self.extract_ftimes(network, channels, min_time);
-
-        // // Filter network spikes to include only those on the provided channels and within a single period after min_time, accounting for edge cases
-        // let ftimes: Vec<Vec<f64>> = channels
-        //     .iter()
-        //     .map(|id| {
-        //         let mut pctimes: Vec<f64> = network
-        //             .neuron_ref(*id)
-        //             .unwrap()
-        //             .ftimes_ref()
-        //             .iter()
-        //             .rev()
-        //             .filter(|ftime| {
-        //                 (**ftime >= min_time - REFRACTORY_PERIOD)
-        //                     & (**ftime < min_time + self.period)
-        //             })
-        //             .copied()
-        //             .collect();
-        //         if (pctimes.len() > 1)
-        //             & (pctimes[pctimes.len() - 1] + self.period - pctimes[0] < REFRACTORY_PERIOD)
-        //         {
-        //             pctimes.pop();
-        //         }
-        //         pctimes
-        //     })
-        //     .collect();
-
         let mut shifts: Vec<Shift> = izip!(rftimes, ftimes)
             .flat_map(|(rcftimes, cftimes)| {
                 rcftimes
@@ -486,91 +425,4 @@ pub trait RealLinearOperator {
 
         Ok(spectral_radius)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use approx::assert_relative_eq;
-
-    // #[test]
-    // fn test_process_time() {
-    //     let similarity = Similarity::new(vec![vec![]], 5.0).unwrap();
-
-    //     assert_eq!(
-    //         similarity.process_times(&vec![vec![]], 0.0),
-    //         vec![&[] as &[f64]]
-    //     );
-    //     assert_eq!(
-    //         similarity.process_times(&vec![vec![1.25, 3.5, 5.25]], 0.0),
-    //         vec![&[1.25, 3.5]]
-    //     );
-    //     assert_eq!(
-    //         similarity.process_times(&vec![vec![-0.25, 3.5, 4.75]], 0.0),
-    //         vec![&[3.5, 4.75]]
-    //     );
-    //     assert_eq!(
-    //         similarity.process_times(&vec![vec![-0.25, 3.5, 5.25]], 0.0),
-    //         vec![&[-0.25, 3.5]]
-    //     );
-    //     assert_eq!(
-    //         similarity.process_times(&vec![vec![0.25, 3.5, 4.75]], 0.0),
-    //         vec![&[3.5, 4.75]]
-    //     );
-    // }
-
-    // #[test]
-    // fn test_extended_shifts() {
-    //     let similarity = Similarity::new(vec![vec![0.0, 2.5, 4.0]], 5.0).unwrap();
-
-    //     let ctimes = vec![0.25, 2.0];
-    //     let times = vec![&ctimes[..]];
-
-    //     assert_eq!(similarity.extended_shifts(&times)[0], (-2.25, 2, 3));
-    //     assert_eq!(similarity.extended_shifts(&times)[1], (-2.0, 2, 3));
-    //     assert_eq!(similarity.extended_shifts(&times)[2], (-0.5, 2, 3));
-    //     assert_eq!(similarity.extended_shifts(&times)[3], (0.25, 2, 3));
-    //     assert_eq!(similarity.extended_shifts(&times)[4], (1.25, 2, 3));
-    //     assert_eq!(similarity.extended_shifts(&times)[5], (2.0, 2, 3));
-    // }
-
-    // #[test]
-    // fn test_precision_recall() {
-    //     let similarity = Similarity::new(vec![vec![0.75, 2.0, 3.25, 4.5]], 6.0).unwrap();
-
-    //     let times = vec![vec![5.75, 7.0, 8.25, 9.5]];
-    //     let (precision, recall) = similarity.measure(&times, 5.0).unwrap();
-    //     assert_relative_eq!(precision, 1.0, epsilon = 1e-6);
-    //     assert_relative_eq!(recall, 1.0, epsilon = 1e-6);
-    // }
-
-    // #[test]
-    // fn test_precision_recall_empty() {
-    //     let similarity = Similarity::new(vec![vec![0.75, 2.0, 3.25, 4.5]], 6.0).unwrap();
-    //     let times = vec![vec![]];
-    //     let (precision, recall) = similarity.measure(&times, 0.0).unwrap();
-    //     assert_relative_eq!(precision, 0.0, epsilon = 1e-6);
-    //     assert_relative_eq!(recall, 0.0, epsilon = 1e-6);
-
-    //     let similarity = Similarity::new(vec![vec![]], 6.0).unwrap();
-    //     let times = vec![vec![0.75, 2.0, 3.25, 4.5]];
-    //     let (precision, recall) = similarity.measure(&times, 0.0).unwrap();
-    //     assert_relative_eq!(precision, 0.0, epsilon = 1e-6);
-    //     assert_relative_eq!(recall, 0.0, epsilon = 1e-6);
-    // }
-
-    // #[test]
-    // fn test_precision_recall_many_spikes() {
-    //     let similarity = Similarity::new(
-    //         vec![(0..50).map(|i| 2.0_f64 * i as f64).collect(); 100],
-    //         100.0,
-    //     )
-    //     .unwrap();
-
-    //     let times = vec![(0..50).map(|i| 1.0 + 2.0_f64 * i as f64).collect(); 100];
-    //     let (precision, recall) = similarity.measure(&times, 0.0).unwrap();
-
-    //     assert_relative_eq!(precision, 1.0, epsilon = 1e-6);
-    //     assert_relative_eq!(recall, 1.0, epsilon = 1e-6);
-    // }
 }

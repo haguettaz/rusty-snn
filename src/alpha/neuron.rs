@@ -256,8 +256,8 @@ impl InputSpike for AlphaInputSpike {
             input_id,
             time,
             weight,
-            a: weight * E,
-            b: weight * time * E,
+            a: f64::NAN,
+            b: f64::NAN,
         }
     }
 
@@ -304,29 +304,17 @@ pub struct AlphaInputSpikeTrain {
 
 impl AlphaInputSpikeTrain {
     /// A new input spike train.
-    pub fn new(mut input_spikes: Vec<AlphaInputSpike>) -> Self {
-        if !input_spikes.is_empty() {
-            input_spikes.sort_by(|input_spike_1, input_spike_2| {
-                input_spike_1.partial_cmp(&input_spike_2).unwrap()
-            });
-
-            input_spikes[0].a = input_spikes[0].weight * E;
-            input_spikes[0].b = input_spikes[0].weight * input_spikes[0].time * E;
-
-            for i in 1..input_spikes.len() {
-                input_spikes[i].a = input_spikes[i - 1].a
-                    * (input_spikes[i - 1].time - input_spikes[i].time).exp()
-                    + input_spikes[i].weight * E;
-                input_spikes[i].b = input_spikes[i - 1].b
-                    * (input_spikes[i - 1].time - input_spikes[i].time).exp()
-                    + input_spikes[i].weight * input_spikes[i].time * E;
-            }
-        }
-        AlphaInputSpikeTrain { input_spikes }
+    fn new(mut input_spikes: Vec<AlphaInputSpike>) -> Self {
+        input_spikes.sort_by(|input_spike_1, input_spike_2| {
+            input_spike_1.partial_cmp(&input_spike_2).unwrap()
+        });
+        let mut input_spike_train = AlphaInputSpikeTrain { input_spikes };
+        input_spike_train.compute_ab(0);
+        input_spike_train
     }
 
     /// Find the position of the last input spike (strictly) before time, if any.
-    pub fn find_before(&self, time: f64) -> Option<usize> {
+    fn find_before(&self, time: f64) -> Option<usize> {
         match self
             .input_spikes
             .binary_search_by(|input_spike| input_spike.time.partial_cmp(&time).unwrap())
@@ -356,7 +344,12 @@ impl AlphaInputSpikeTrain {
         }
     }
 
+    /// Compute the coefficients a and b of the input spikes.
     fn compute_ab(&mut self, start: usize) {
+        if self.input_spikes.is_empty() {
+            return;
+        }
+
         if start == 0 {
             self.input_spikes[0].a = self.input_spikes[0].weight * E;
             self.input_spikes[0].b = self.input_spikes[0].weight * self.input_spikes[0].time * E;
@@ -395,7 +388,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
 
     /// A new input spike train from a collection of inputs and firing times.
     fn new_from(inputs: &[Input], ftimes: &Vec<Vec<f64>>) -> Self {
-        let mut input_spikes: Vec<Self::InputSpike> = inputs
+        let input_spikes: Vec<Self::InputSpike> = inputs
             .iter()
             .enumerate()
             .flat_map(|(i, input)| {
@@ -405,18 +398,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
             })
             .collect();
 
-        input_spikes.sort_by(|s1, s2| s1.partial_cmp(&s2).unwrap());
-
-        for i in 1..input_spikes.len() {
-            input_spikes[i].a = input_spikes[i - 1].a
-                * (input_spikes[i - 1].time - input_spikes[i].time).exp()
-                + input_spikes[i].weight * E;
-            input_spikes[i].b = input_spikes[i - 1].b
-                * (input_spikes[i - 1].time - input_spikes[i].time).exp()
-                + input_spikes[i].weight * input_spikes[i].time * E;
-        }
-
-        AlphaInputSpikeTrain { input_spikes }
+        Self::new(input_spikes)
     }
 
     /// A new input spike train from a collection of inputs and (cyclic) firing times.
@@ -428,12 +410,10 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         interval: &TimeInterval,
     ) -> Self {
         match interval {
-            TimeInterval::Empty => AlphaInputSpikeTrain {
-                input_spikes: vec![],
-            },
+            TimeInterval::Empty => Self::new_empty(),
             TimeInterval::Closed { start, end } => {
                 let min_time = *start + lambert_wm1(-MIN_INPUT_VALUE / E);
-                let mut input_spikes: Vec<Self::InputSpike> = inputs
+                let input_spikes: Vec<Self::InputSpike> = inputs
                     .iter()
                     .enumerate()
                     .flat_map(|(input_id, input)| {
@@ -460,20 +440,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                     })
                     .collect();
 
-                input_spikes.sort_by(|input_spike_1, input_spike_2| {
-                    input_spike_1.partial_cmp(&input_spike_2).unwrap()
-                });
-
-                for i in 1..input_spikes.len() {
-                    input_spikes[i].a = input_spikes[i - 1].a
-                        * (input_spikes[i - 1].time - input_spikes[i].time).exp()
-                        + input_spikes[i].weight * E;
-                    input_spikes[i].b = input_spikes[i - 1].b
-                        * (input_spikes[i - 1].time - input_spikes[i].time).exp()
-                        + input_spikes[i].weight * input_spikes[i].time * E;
-                }
-
-                AlphaInputSpikeTrain { input_spikes }
+                Self::new(input_spikes)
             }
         }
     }
@@ -495,7 +462,8 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
         Ok(())
     }
 
-    /// Insert a collection of (sorted) input spikes into the neuron's input spike train while preserving the order.
+    /// Insert a collection of (sorted) input spikes into the neuron's input spike train.
+    /// Spike insertions maintain sorted order with O(n) worst-case complexity.
     fn insert_sorted(&mut self, new_input_spikes: Vec<Self::InputSpike>) {
         if new_input_spikes.is_empty() {
             return;
@@ -532,6 +500,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                 Default::default,
             );
 
+            // Insert the new input spikes at the pre-computed indices
             std::iter::once(self.input_spikes.len())
                 .chain(indices.into_iter().rev())
                 .tuple_windows()

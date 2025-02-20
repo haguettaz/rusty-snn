@@ -58,6 +58,12 @@ pub struct TimeTemplate {
 }
 
 impl TimeTemplate {
+    /// Creates a new time template from a sorted list of firing times.
+    ///
+    /// This method constructs a time template containing:
+    /// - A list of firing times within the period
+    /// - Silence regions where no firing occurs
+    /// - Active regions around each firing time
     pub fn new_from(ftimes: &Vec<f64>, half_width: f64, interval: TimeInterval) -> Self {
         match interval {
             TimeInterval::Empty => TimeTemplate {
@@ -140,29 +146,6 @@ impl TimeTemplate {
     /// - A list of firing times within the period
     /// - Silence regions where no firing occurs
     /// - Active regions around each firing time
-    ///
-    /// # Arguments
-    ///
-    /// * `ftimes` - A slice of firing times that must be sorted in ascending order
-    /// * `half_width` - Half width of the active regions around each firing time
-    /// * `period` - The period of the cycle
-    ///
-    /// # Returns
-    ///
-    /// A `TimeTemplate` instance containing the firing times and associated regions.
-    /// If `ftimes` is empty, returns a template with a single silence region spanning the entire period.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rusty_snn::core::optim::TimeTemplate;
-    ///
-    /// let ftimes = vec![0.1, 2.4, 8.7];  // Must be sorted
-    /// let half_width = 0.2;
-    /// let period = 10.0;
-    ///
-    /// let template = TimeTemplate::new_cyclic_from(&ftimes, half_width, period);
-    /// ```
     pub fn new_cyclic_from(ftimes: &[f64], half_width: f64, period: f64) -> Self {
         if ftimes.is_empty() {
             TimeTemplate {
@@ -241,18 +224,42 @@ pub fn set_grb_vars(
     }
 
     let weights = match (min_weight.is_infinite(), max_weight.is_infinite()) {
-        (false, false) => (0..num_weights)
-            .map(|_| add_ctsvar!(model, bounds: min_weight..max_weight).unwrap())
-            .collect::<Vec<Var>>(),
-        (true, false) => (0..num_weights)
-            .map(|_| add_ctsvar!(model, bounds: ..max_weight).unwrap())
-            .collect::<Vec<Var>>(),
-        (false, true) => (0..num_weights)
-            .map(|_| add_ctsvar!(model, bounds: min_weight..).unwrap())
-            .collect::<Vec<Var>>(),
-        (true, true) => (0..num_weights)
-            .map(|_| add_ctsvar!(model, bounds: ..).unwrap())
-            .collect::<Vec<Var>>(),
+        (false, false) => {
+            let mut vars = Vec::with_capacity(num_weights);
+            for _ in 0..num_weights {
+                let var = add_ctsvar!(model, bounds: min_weight..max_weight)
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+                vars.push(var);
+            }
+            vars
+        }
+        (true, false) => {
+            let mut vars = Vec::with_capacity(num_weights);
+            for _ in 0..num_weights {
+                let var = add_ctsvar!(model, bounds: ..max_weight)
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+                vars.push(var);
+            }
+            vars
+        }
+        (false, true) => {
+            let mut vars = Vec::with_capacity(num_weights);
+            for _ in 0..num_weights {
+                let var = add_ctsvar!(model, bounds: min_weight..)
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+                vars.push(var);
+            }
+            vars
+        }
+        (true, true) => {
+            let mut vars = Vec::with_capacity(num_weights);
+            for _ in 0..num_weights {
+                let var = add_ctsvar!(model, bounds: ..)
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+                vars.push(var);
+            }
+            vars
+        }
     };
 
     Ok(weights)
