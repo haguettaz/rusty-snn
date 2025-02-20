@@ -16,7 +16,6 @@ use rusty_snn::core::spike;
 use rusty_snn::core::utils::TimeInterval;
 use rusty_snn::error::SNNError;
 
-/// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser, Debug)]
 struct Args {
     /// The seed used for network sampling, spike train sampling and memorization
@@ -72,78 +71,47 @@ fn main() -> Result<(), SNNError> {
     let mut hasher = Sha256::new();
     hasher.update(format!("{:?}", args));
     let hash = hasher.finalize();
-    let output_path = format!("log/{:x}.log", hash);
-
-    if Path::new(&output_path).exists() {
-        log::info!("Logfile already exists at {}", output_path);
-        return Ok(());
-    }
+    let log_path = format!("log/{:x}.log", hash);
+    let network_path = format!("network/{:x}.json", hash);
 
     let logfile = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
-        .build(output_path)
-        .unwrap();
+        .build(log_path)
+        .map_err(|e| SNNError::IOError(e.to_string()))?;
 
     let config = Config::builder()
         .appender(Appender::builder().build("logfile", Box::new(logfile)))
         .build(Root::builder().appender("logfile").build(LevelFilter::Info))
-        .unwrap();
+        .map_err(|e| SNNError::IOError(e.to_string()))?;
 
-    log4rs::init_config(config).unwrap();
+    log4rs::init_config(config).map_err(|e| SNNError::IOError(e.to_string()))?;
 
     log::info!("{:?}", args);
-
-    let mut hasher = Sha256::new();
-    hasher.update(format!(
-        "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
-        args.seed,
-        args.num_neurons,
-        args.num_inputs,
-        args.lim_weight,
-        (args.min_delay, args.max_delay),
-        args.period,
-        args.firing_rate,
-        args.max_level,
-        args.min_slope,
-        args.half_width,
-        args.objective
-    ));
-    let hash = hasher.finalize();
-    let network_path = format!("network/{:x}.json", hash);
 
     let rftimes = spike::rand_cyclic(args.num_neurons, args.period, args.firing_rate, args.seed)?;
     log::info!("Spike train sampling done!");
 
-    let mut network;
-    match Path::new(&network_path).exists() {
-        true => {
-            network = AlphaNetwork::load_from(&network_path)?;
-            log::info!("Network loading: done! Loaded from {}", network_path);
-        }
-        false => {
-            network = AlphaNetwork::rand_fin(
-                args.num_neurons,
-                args.num_inputs,
-                (args.min_delay, args.max_delay),
-                args.seed,
-            )?;
-            log::info!("Network sampling: done!");
+    let mut network = AlphaNetwork::rand_fin(
+        args.num_neurons,
+        args.num_inputs,
+        (args.min_delay, args.max_delay),
+        args.seed,
+    )?;
+    log::info!("Network sampling: done!");
 
-            network.memorize_cyclic(
-                &vec![&rftimes],
-                &vec![args.period],
-                (-args.lim_weight, args.lim_weight),
-                args.max_level,
-                args.min_slope,
-                args.half_width,
-                Objective::from_str(&args.objective).unwrap(),
-            )?;
-            log::info!("Network optimization: done!");
+    network.memorize_cyclic(
+        &vec![&rftimes],
+        &vec![args.period],
+        (-args.lim_weight, args.lim_weight),
+        args.max_level,
+        args.min_slope,
+        args.half_width,
+        Objective::from_str(&args.objective).unwrap(),
+    )?;
+    log::info!("Network optimization: done!");
 
-            network.save_to(&network_path)?;
-            log::info!("Network saving: done! Saved to {}", network_path);
-        }
-    };
+    network.save_to(&network_path)?;
+    log::info!("Network saving: done! Saved to {}", network_path);
 
     let jitter_propagator =
         AlphaLinearJitterPropagator::new(network.connections_ref(), &rftimes, args.period);

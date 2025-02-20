@@ -350,6 +350,68 @@ pub trait Network {
         }
     }
 
+    /// Collect a list of potential spikes from all neurons after the specified time.
+    fn collect_spikes(&self, min_time: f64, max_time: f64) -> Vec<(usize, Option<f64>)> {
+        self.neurons_iter()
+            .map(|neuron| match neuron.next_spike(min_time) {
+                Some(time) => {
+                    if time <= max_time {
+                        (neuron.id(), Some(time))
+                    } else {
+                        (neuron.id(), None)
+                    }
+                }
+                None => (neuron.id(), None),
+            })
+            .collect::<Vec<(usize, Option<f64>)>>()
+    }
+
+    /// Collect a list of potential spikes from all neurons after the specified time.
+    /// Computations are done in parallel.
+    fn collect_spikes_par(&self, min_time: f64, max_time: f64) -> Vec<(usize, Option<f64>)> {
+        self.neurons_par_iter()
+            .map(|neuron| match neuron.next_spike(min_time) {
+                Some(time) => {
+                    if time <= max_time {
+                        (neuron.id(), Some(time))
+                    } else {
+                        (neuron.id(), None)
+                    }
+                }
+                None => (neuron.id(), None),
+            })
+            .collect::<Vec<(usize, Option<f64>)>>()
+        // spikes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    }
+
+    fn accept_spikes(
+        &mut self,
+        spikes: &[(usize, Option<f64>)],
+        accepted_spikes: &mut Vec<Option<f64>>,
+    ) {
+        spikes.iter().for_each(|(id, time)| match time {
+            None => {
+                accepted_spikes[*id] = None;
+            }
+            Some(time) => {
+                if spikes
+                    .iter()
+                    .filter_map(|(other_id, other_time)| match other_time {
+                        Some(other_time) => Some((other_id, other_time)),
+                        None => None,
+                    })
+                    .all(|(other_id, other_time)| {
+                        *time <= other_time + self.min_delay_from_to(*other_id, *id)
+                    })
+                {
+                    accepted_spikes[*id] = Some(*time)
+                } else {
+                    accepted_spikes[*id] = None
+                }
+            }
+        });
+    }
+
     /// Simulate the network activity on the specified time interval.
     fn run(
         &mut self,
@@ -377,89 +439,44 @@ pub trait Network {
             };
 
             let mut time = *start;
+            let mut new_spikes: Vec<Option<f64>> = vec![None; self.num_neurons()];
+
             while time < *end {
                 // Collect the candidate next spikes from all neurons, using parallel computation if the number of neurons is large
                 // The candidate spikes are sorted by neuron ID
-                let mut candidate_new_times = if self.num_neurons() > *MIN_NEURONS_PAR {
-                    self.neurons_par_iter()
-                        .map(|neuron| match neuron.next_spike(time) {
-                            Some(time) => {
-                                if time <= *end {
-                                    (neuron.id(), Some(time))
-                                } else {
-                                    (neuron.id(), None)
-                                }
-                            }
-                            None => (neuron.id(), None),
-                        })
-                        .collect::<Vec<(usize, Option<f64>)>>()
+                let candidate_new_spikes = if self.num_neurons() > *MIN_NEURONS_PAR {
+                    self.collect_spikes_par(time, *end)
                 } else {
-                    self.neurons_iter()
-                        .map(|neuron| match neuron.next_spike(time) {
-                            Some(time) => {
-                                if time <= *end {
-                                    (neuron.id(), Some(time))
-                                } else {
-                                    (neuron.id(), None)
-                                }
-                            }
-                            None => (neuron.id(), None),
-                        })
-                        .collect::<Vec<(usize, Option<f64>)>>()
+                    self.collect_spikes(time, *end)
                 };
-                candidate_new_times.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
                 // Accept as many spikes as possible at the current time
-                let new_times = candidate_new_times
-                    .iter()
-                    .map(|(id, time)| match time {
-                        Some(time) => {
-                            if candidate_new_times
-                                .iter()
-                                .filter_map(|(other_id, other_time)| match other_time {
-                                    Some(other_time) => Some((other_id, other_time)),
-                                    None => None,
-                                })
-                                .all(|(other_id, other_time)| {
-                                    *time <= other_time + self.min_delay_from_to(*other_id, *id)
-                                })
-                            {
-                                Some(*time)
-                            } else {
-                                None
-                            }
-                        }
-                        None => None,
-                    })
-                    .collect::<Vec<Option<f64>>>();
+                self.accept_spikes(&candidate_new_spikes, &mut new_spikes);
 
-                // Get the lowest among all accepted spikes if any or end the simulation
-                time = match new_times
+                // Get the lowest among all accepted spikes if any, or end the simulation
+                time = new_spikes
                     .iter()
                     .filter_map(|x| *x)
                     .min_by(|a, b| a.partial_cmp(&b).unwrap())
-                {
-                    Some(min_time) => min_time,
-                    None => *end,
-                };
+                    .unwrap_or(*end);
 
                 // Update the neuron internal state: 1) fire the accepted spikes and 2) update the input spike trains
                 // let new_spike_train = MultiChannelSpikeTrain::new_from(new_times);
                 if self.num_neurons() > *MIN_NEURONS_PAR {
                     self.neurons_par_iter_mut().for_each(|neuron| {
-                        if let Some(ft) = new_times[neuron.id()] {
+                        if let Some(ft) = new_spikes[neuron.id()] {
                             neuron.fire(ft);
                         }
                         neuron.drain_input_spike_train(time);
-                        neuron.receive_spikes(&new_times);
+                        neuron.receive_spikes(&new_spikes);
                     })
                 } else {
                     self.neurons_iter_mut().for_each(|neuron| {
-                        if let Some(ft) = new_times[neuron.id()] {
+                        if let Some(ft) = new_spikes[neuron.id()] {
                             neuron.fire(ft);
                         }
                         neuron.drain_input_spike_train(time);
-                        neuron.receive_spikes(&new_times);
+                        neuron.receive_spikes(&new_spikes);
                     })
                 };
             }

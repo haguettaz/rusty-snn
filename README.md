@@ -1,4 +1,4 @@
-# ⚡️piking Neural Network - A Rust Implementation 🦀
+# Spiking Neural Network - A Rust Implementation ⚡️🦀⚡️
 
 We consider (continuous-time) spiking neural networks and their use as robust memorizers of multichannel spike trains.
 We refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166) for details.
@@ -32,11 +32,13 @@ This feature will be available soon.
 ## Usage
 
 An example of how to use the library is provided in the `examples` directory.
-- `example1.rs` demonstrates how to randomly create a network, train it to memorize a random spike train, and simulate the network.
+
+- `example1.rs` demonstrates how to create a network randomly, train it to memorize a random spike train, and simulate the network.
 
 ## References
 
-* [Aguettaz and Loeliger, "Continuous-time neural networks can stably memorize random spike trains", *arXiv*, 2024.](https://arxiv.org/abs/2408.01166)
-* [Klabnik and Nichols, *The Rust Programming Language*, 2021.](https://doc.rust-lang.org/book/)
+- [Aguettaz and Loeliger, "Continuous-time neural networks can stably memorize random spike trains", *arXiv*, 2024.](https://arxiv.org/abs/2408.01166)
+
+- [Klabnik and Nichols, *The Rust Programming Language*, 2021.](https://doc.rust-lang.org/book/)
 
 [^1]: Read as concurrency or parallelism.

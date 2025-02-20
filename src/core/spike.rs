@@ -47,7 +47,7 @@ pub fn rand_jitter(
     let mut rng = rgsl::Rng::new(rgsl::RngType::default()).unwrap();
     rng.set(seed as usize);
 
-    if rtimes.iter().any(|rctimes| rctimes.iter().any(|ft| (*ft < start) | (*ft > end))) {
+    if rtimes.iter().any(|rctimes| rctimes.iter().any(|ft| (*ft < start) || (*ft > end))) {
         return Err(SNNError::InvalidParameter(
             "Invalid time range: all nominal firing times should be in [start, end]".to_string(),
         ));

@@ -6,6 +6,7 @@ use log;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rgsl::zeta;
 
 use crate::core::network::Network;
 use crate::core::REFRACTORY_PERIOD;
@@ -72,6 +73,12 @@ impl Similarity {
         channels
             .iter()
             .map(|id| {
+                // Extract spikes within a single period after min_time:
+                // 1. Find start index using binary search, including spikes up to REFRACTORY_PERIOD before min_time
+                //    to avoid missing spikes that could be part of this period
+                // 2. Find end index at min_time + period
+                // 3. If the first and last spikes are within REFRACTORY_PERIOD when wrapped around the period,
+                //    exclude the first spike to avoid counting essentially duplicate spikes across period boundaries
                 let neuron = network.neuron_ref(*id).unwrap();
                 let ftimes = neuron.ftimes_ref();
                 let start = match ftimes.binary_search_by(|time| {
@@ -274,7 +281,7 @@ impl Similarity {
     ) -> Result<(TimeValuePair<f64>, TimeValuePair<f64>), SNNError> {
         if channels
             .iter()
-            .any(|id| network.neuron_ref(*id).is_none() | self.rftimes.get(*id).is_none())
+            .any(|id| network.neuron_ref(*id).is_none() || self.rftimes.get(*id).is_none())
         {
             return Err(SNNError::InvalidParameter(
                 "The channel IDs must be valid indices of the spike trains.".to_string(),
@@ -356,7 +363,11 @@ impl Similarity {
 /// Returns a random vector on the unit sphere.
 pub fn rand_unit<R: Rng>(dim: usize, rng: &mut R) -> Vec<f64> {
     let mut z = (0..dim).map(|_| rng.random::<f64>()).collect::<Vec<f64>>();
-    let z_norm = l2_norm(&z);
+    let mut z_norm = l2_norm(&z);
+    while z_norm < TOL {
+        z = (0..dim).map(|_| rng.random::<f64>()).collect::<Vec<f64>>();
+        z_norm = l2_norm(&z);
+    }
     mult_scalar_in(&mut z, 1.0 / z_norm);
     z
 }

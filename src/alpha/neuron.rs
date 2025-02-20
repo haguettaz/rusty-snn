@@ -221,7 +221,7 @@ impl Neuron for AlphaNeuron {
 }
 
 /// An input spike through an alpha-shaped synapse.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AlphaInputSpike {
     /// The ID of the input along which the spike is received.
     pub input_id: usize,
@@ -355,6 +355,31 @@ impl AlphaInputSpikeTrain {
             }
         }
     }
+
+    fn compute_ab(&mut self, start: usize) {
+        if start == 0 {
+            self.input_spikes[0].a = self.input_spikes[0].weight * E;
+            self.input_spikes[0].b = self.input_spikes[0].weight * self.input_spikes[0].time * E;
+
+            (start + 1..self.input_spikes.len()).for_each(|i| {
+                self.input_spikes[i].a = self.input_spikes[i - 1].a
+                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
+                    + self.input_spikes[i].weight * E;
+                self.input_spikes[i].b = self.input_spikes[i - 1].b
+                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
+                    + self.input_spikes[i].weight * self.input_spikes[i].time * E;
+            });
+        } else {
+            (start..self.input_spikes.len()).for_each(|i| {
+                self.input_spikes[i].a = self.input_spikes[i - 1].a
+                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
+                    + self.input_spikes[i].weight * E;
+                self.input_spikes[i].b = self.input_spikes[i - 1].b
+                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
+                    + self.input_spikes[i].weight * self.input_spikes[i].time * E;
+            });
+        }
+    }
 }
 
 impl InputSpikeTrain for AlphaInputSpikeTrain {
@@ -462,26 +487,19 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                     "Input spike train and inputs are not aligned".to_string(),
                 ))?;
             input_spike.weight = input.weight;
-            input_spike.a = input_spike.weight * E;
-            input_spike.b = input_spike.weight * input_spike.time * E;
             Ok(())
         })?;
 
-        for i in 1..self.input_spikes.len() {
-            self.input_spikes[i].a = self.input_spikes[i - 1].a
-                * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
-                + self.input_spikes[i].weight * E;
-            self.input_spikes[i].b = self.input_spikes[i - 1].b
-                * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
-                + self.input_spikes[i].weight * self.input_spikes[i].time * E;
-        }
+        self.compute_ab(0);
 
         Ok(())
     }
 
     /// Insert a collection of (sorted) input spikes into the neuron's input spike train while preserving the order.
     fn insert_sorted(&mut self, new_input_spikes: Vec<Self::InputSpike>) {
-        if !new_input_spikes.is_empty() {
+        if new_input_spikes.is_empty() {
+            return;
+        } else {
             // Collect the insertion indices of all new input spikes and keep track of the first insertion index
             let indices: Vec<usize> = new_input_spikes
                 .iter()
@@ -506,12 +524,12 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                     }
                 })
                 .collect();
-            let mut first_insert = *indices.first().unwrap();
+            let start = *indices.first().unwrap();
 
             // Create space at the end of the input spikes vector
-            self.input_spikes.extend(
-                std::iter::repeat(AlphaInputSpike::new(0, 0.0, f64::NAN))
-                    .take(new_input_spikes.len()),
+            self.input_spikes.resize_with(
+                self.input_spikes.len() + new_input_spikes.len(),
+                Default::default,
             );
 
             std::iter::once(self.input_spikes.len())
@@ -530,24 +548,7 @@ impl InputSpikeTrain for AlphaInputSpikeTrain {
                     self.input_spikes[pos].weight = new_input_spike.weight;
                 });
 
-            // Initialize the coefficients a and b of the first new input_spike, if it is the new first input spike of the train.
-            if first_insert == 0 {
-                self.input_spikes[0].a = self.input_spikes[0].weight * E;
-                self.input_spikes[0].b =
-                    self.input_spikes[0].weight * self.input_spikes[0].time * E;
-                first_insert += 1;
-            }
-
-            // Update the coefficients a and b of the input spikes.
-            // Note that the input spikes before the first new input spike do not need to be updated.
-            (first_insert..self.input_spikes.len()).for_each(|i| {
-                self.input_spikes[i].a = self.input_spikes[i - 1].a
-                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
-                    + self.input_spikes[i].weight * E;
-                self.input_spikes[i].b = self.input_spikes[i - 1].b
-                    * (self.input_spikes[i - 1].time - self.input_spikes[i].time).exp()
-                    + self.input_spikes[i].weight * self.input_spikes[i].time * E;
-            });
+            self.compute_ab(start);
         }
     }
 

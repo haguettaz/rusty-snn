@@ -134,7 +134,35 @@ impl TimeTemplate {
         }
     }
 
-    /// Create a new time template from a list of sorted firing times.
+    /// Creates a new cyclic time template from a sorted list of firing times.
+    ///
+    /// This method constructs a time template that repeats with the given period, containing:
+    /// - A list of firing times within the period
+    /// - Silence regions where no firing occurs
+    /// - Active regions around each firing time
+    ///
+    /// # Arguments
+    ///
+    /// * `ftimes` - A slice of firing times that must be sorted in ascending order
+    /// * `half_width` - Half width of the active regions around each firing time
+    /// * `period` - The period of the cycle
+    ///
+    /// # Returns
+    ///
+    /// A `TimeTemplate` instance containing the firing times and associated regions.
+    /// If `ftimes` is empty, returns a template with a single silence region spanning the entire period.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rusty_snn::core::optim::TimeTemplate;
+    ///
+    /// let ftimes = vec![0.1, 2.4, 8.7];  // Must be sorted
+    /// let half_width = 0.2;
+    /// let period = 10.0;
+    ///
+    /// let template = TimeTemplate::new_cyclic_from(&ftimes, half_width, period);
+    /// ```
     pub fn new_cyclic_from(ftimes: &[f64], half_width: f64, period: f64) -> Self {
         if ftimes.is_empty() {
             TimeTemplate {
