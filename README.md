@@ -1,6 +1,6 @@
 # Spiking Neural Network - A Rust Implementation ⚡️🦀⚡️
 
-We consider (continuous-time) spiking neural networks and their use as robust memorizers of multichannel spike trains.
+We consider (continuous-time) spiking neural networks and their use as robust memorizers of spike scores.
 We refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166) for details.
 
 The implementation is based on the [Rust programming language](https://www.rust-lang.org/).
