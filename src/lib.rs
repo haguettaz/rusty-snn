@@ -1,13 +1,7 @@
-//! This crate provides tools for simulating spiking neural networks (SNNs) in Rust.
-//! 
-//! # Creating Networks
-//! 
-//! 
-//! # Simulating Networks
-//! 
-//! 
-//! # Optimizing Networks
+//! This crate provides tools for simulating recurrent spiking neural networks (SNNs) in Rust.
+//! It is designed to be flexible and efficient, with a focus on memorization tasks.
+//!
+
+pub mod alpha;
 pub mod core;
-pub mod simulator;
-pub mod sampler;
-// pub mod optimizer;
+pub mod error;

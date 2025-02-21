@@ -1,33 +1,44 @@
-# ⚡️piking Neural Network - A Rust Implementation 🦀 
+# Spiking Neural Network - A Rust Implementation ⚡️🦀⚡️
 
-We consider (continuous-time) spiking neural networks and their use as robust memorizers of arbitrary spike trains. 
-For details, we refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166). 
-
-## Why Rust? 
+We consider (continuous-time) spiking neural networks and their use as robust memorizers of multichannel spike trains.
+We refer to [Aguettaz and Loeliger, 2024](https://arxiv.org/abs/2408.01166) for details.
 
 The implementation is based on the [Rust programming language](https://www.rust-lang.org/).
-This language was designed with several key goals in mind, which revolve around improving safety, performance, and concurrency[^1], while making systems programming more accessible and ergonomic.
+This language was designed with several key goals, which revolve around improving safety, performance, and concurrency.[^1]
 
-### Memory Safety
+## Installation
 
-...
+To install Rust, follow the instructions on the [official website](https://www.rust-lang.org/tools/install).
+The installation includes the Rust compiler, Cargo (the Rust package manager), and the Rust standard library.
 
-### Zero-cost Abstractions
+### Building From Source
 
-...
+To build the project from source, clone the repository and execute the following command in the root directory:
 
-### Fearless Concurrency
+```bash
+cargo build --release
+```
 
-<!-- Message passing: *"Do not communicate by sharing memory; instead, share memory by communicating."* -->
+You can generate and view the rusty-snn documentation locally by running:
+
+```bash
+cargo doc --open
+```
+
+### Installation From Crates.io
+
+This feature will be available soon.
+
+## Usage
+
+An example of how to use the library is provided in the `examples` directory.
+
+- `example1.rs` demonstrates how to create a network randomly, train it to memorize a random spike train, and simulate the network.
 
 ## References
 
-* [Aguettaz and Loeliger, "Continuous-time neural networks can stably memorize random spike trains", *arXiv*, 2024.](https://arxiv.org/abs/2408.01166)
-* [Klabnik and Nichols, *The Rust Programming Language*, 2021.](https://doc.rust-lang.org/book/)
+- [Aguettaz and Loeliger, "Continuous-time neural networks can stably memorize random spike trains", *arXiv*, 2024.](https://arxiv.org/abs/2408.01166)
+
+- [Klabnik and Nichols, *The Rust Programming Language*, 2021.](https://doc.rust-lang.org/book/)
 
 [^1]: Read as concurrency or parallelism.
-
-<!-- 
-### Prior Works
-- Murer, *A New Perspective on Memorization in Recurrent Networks of Spiking Neurons*. Ph.D. dissertation, No. 28166, ETH Zürich, 2022.
-- Murer and Loeliger, "Online memorization of random firing sequences by a recurrent neural network," 2020 IEEE International Symposium on Information Theory (ISIT), June 21-26, 2020. -->

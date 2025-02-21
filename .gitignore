@@ -1,3 +1,7 @@
 /target
 /data
 /tests/*.json
+/log
+/network
+*.sh
+*.log
