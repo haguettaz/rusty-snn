@@ -68,33 +68,27 @@ impl Similarity {
             .iter()
             .map(|id| {
                 // Extract spikes within a single period after min_time:
-                // 1. Find start index using binary search, including spikes up to REFRACTORY_PERIOD before min_time
-                //    to avoid missing spikes that could be part of this period
-                // 2. Find end index at min_time + period
+                // 1. Find start index using binary search, including spikes up to min_time
+                // 2. Find end index using binary search, including spikes up to min_time + period + REFRACTORY_PERIOD 
                 // 3. If the first and last spikes are within REFRACTORY_PERIOD when wrapped around the period,
-                //    exclude the first spike to avoid counting essentially duplicate spikes across period boundaries
-                let neuron = network.neuron_ref(*id).unwrap();
+                //    exclude the last spike to avoid counting essentially duplicate spikes across period boundaries
+                let neuron = network.neuron_ref(*id).unwrap();  
                 let ftimes = neuron.ftimes_ref();
                 let start = match ftimes.binary_search_by(|time| {
-                    time.partial_cmp(&(min_time - REFRACTORY_PERIOD)).unwrap()
+                    time.partial_cmp(&(min_time)).unwrap()
                 }) {
                     Ok(pos) | Err(pos) => pos,
                 };
-                let end = match ftimes
-                    .binary_search_by(|time| time.partial_cmp(&(min_time + self.period)).unwrap())
+                let mut end = match ftimes
+                    .binary_search_by(|time| time.partial_cmp(&(min_time + self.period + REFRACTORY_PERIOD)).unwrap())
                 {
-                    Ok(pos) | Err(pos) => pos,
+                    Ok(pos) | Err(pos) => pos - 1,
                 };
 
-                if start < end {
-                    if (ftimes[start] + self.period - ftimes[end - 1]).abs() < REFRACTORY_PERIOD {
-                        &ftimes[start + 1..end]
-                    } else {
-                        &ftimes[start..end]
-                    }
-                } else {
-                    &[]
+                while (end > start) && ((ftimes[start] + self.period - ftimes[end]).abs() < REFRACTORY_PERIOD) {
+                    end -= 1;
                 }
+                &ftimes[start..=end]
             })
             .collect()
     }
