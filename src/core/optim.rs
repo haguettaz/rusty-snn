@@ -273,21 +273,21 @@ pub fn set_grb_objective(
     match objective {
         Objective::None => (),
         Objective::L0 => Err(SNNError::NotImplemented(
-            "L0 regularization is not implemented".to_string(),
+            "L0 regularization is not implemented yet".to_string(),
         ))?,
 
         Objective::L1 => {
             let mut obj_expr = grb::expr::LinExpr::new();
-            for (i, &var) in weights.iter().enumerate() {
+            for (i, &weight) in weights.iter().enumerate() {
                 let slack = add_ctsvar!(model).unwrap();
                 obj_expr.add_term(1.0, slack);
 
                 model
-                    .add_constr(format!("min_slack_{}", i).as_str(), c!(var >= -slack))
+                    .add_constr(format!("min_slack_{}", i).as_str(), c!(weight >= -slack))
                     .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
 
                 model
-                    .add_constr(format!("max_slack_{}", i).as_str(), c!(var <= slack))
+                    .add_constr(format!("max_slack_{}", i).as_str(), c!(weight <= slack))
                     .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
             }
             model
@@ -296,16 +296,30 @@ pub fn set_grb_objective(
         }
         Objective::L2 => {
             let mut obj_expr = grb::expr::QuadExpr::new();
-            for &var in weights.iter() {
-                obj_expr.add_qterm(1.0, var, var);
+            for &weight in weights.iter() {
+                obj_expr.add_qterm(1.0, weight, weight);
             }
             model
                 .set_objective(obj_expr, Minimize)
                 .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
         }
-        Objective::LInfinity => Err(SNNError::NotImplemented(
-            "LInfinity regularization is not implemented".to_string(),
-        ))?,
+        Objective::LInfinity => {
+            let mut obj_expr = grb::expr::LinExpr::new();
+            let lim_weight = add_ctsvar!(model).unwrap();
+            obj_expr.add_term(1.0, lim_weight);
+            model
+                .set_objective(obj_expr, Minimize)
+                .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+
+            for (i, &weight) in weights.iter().enumerate() {
+                model
+                    .add_constr(format!("min_lim_weight_{}", i).as_str(), c!(weight >= -lim_weight))
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+                model
+                    .add_constr(format!("max_lim_weight_{}", i).as_str(), c!(weight <= lim_weight))
+                    .map_err(|e| SNNError::InvalidOperation(e.to_string()))?;
+            }
+        }
     }
 
     Ok(())
