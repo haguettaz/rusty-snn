@@ -1272,4 +1272,53 @@ mod tests {
         ]);
         assert_relative_eq!(neuron.next_spike(0.0).unwrap(), 1.55, epsilon = 1e-9);
     }
+
+    #[test]
+    fn test_memorize_single_spike_periodic_spike_train_linfinity() {
+        let mut neuron = AlphaNeuron::new_empty(0, 0);
+        neuron.push_input(0, f64::NAN, 0.0);
+        neuron.push_input(1, f64::NAN, 0.0);
+        neuron.push_input(2, f64::NAN, 0.0);
+        neuron.push_input(3, f64::NAN, 0.0);
+        neuron.push_input(4, f64::NAN, 0.0);
+
+        let time_template = TimeTemplate::new_cyclic_from(&vec![1.55], 0.25, 100.0);
+
+        let input_spike_train = AlphaInputSpikeTrain::new(vec![
+            AlphaInputSpike::new(1, -99.0, f64::NAN),
+            AlphaInputSpike::new(2, -98.5, f64::NAN),
+            AlphaInputSpike::new(0, -98.45, f64::NAN),
+            AlphaInputSpike::new(3, -98.0, f64::NAN),
+            AlphaInputSpike::new(4, -96.5, f64::NAN),
+            AlphaInputSpike::new(1, 1.0, f64::NAN),
+            AlphaInputSpike::new(2, 1.5, f64::NAN),
+            AlphaInputSpike::new(0, 1.55, f64::NAN),
+            AlphaInputSpike::new(3, 2.0, f64::NAN),
+            AlphaInputSpike::new(4, 3.5, f64::NAN),
+            AlphaInputSpike::new(1, 101.0, f64::NAN),
+            AlphaInputSpike::new(2, 101.5, f64::NAN),
+            AlphaInputSpike::new(0, 101.55, f64::NAN),
+            AlphaInputSpike::new(3, 102.0, f64::NAN),
+            AlphaInputSpike::new(4, 103.5, f64::NAN),
+        ]);
+        neuron
+            .memorize(
+                vec![time_template],
+                vec![input_spike_train],
+                (-5.0, 5.0),
+                0.5,
+                0.0,
+                Objective::LInfinity,
+            )
+            .expect("Memorization failed");
+
+        neuron.init_input_spike_train(&vec![
+            vec![1.55],
+            vec![1.0],
+            vec![1.5],
+            vec![2.0],
+            vec![3.5],
+        ]);
+        assert_relative_eq!(neuron.next_spike(0.0).unwrap(), 1.55, epsilon = 1e-9);
+    }
 }

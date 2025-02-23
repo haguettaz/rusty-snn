@@ -275,7 +275,7 @@ pub trait Neuron: Sync + Send {
                         );
                         Ok(())
                     }
-                    Objective::L1 => {
+                    Objective::L1 | Objective::LInfinity => {
                         let num_cstrs = model
                             .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
