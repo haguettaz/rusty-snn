@@ -61,7 +61,7 @@ impl Connection {
             ));
         }
         let delay_rng = StdRng::seed_from_u64(seed);
-        let delay_dist = Uniform::new(lim_delays.0, lim_delays.1).map_err(|e| {
+        let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
             SNNError::InvalidParameter(format!("Invalid delay distribution: {}", e))
         })?;
         Ok(delay_dist.sample_iter(delay_rng))
