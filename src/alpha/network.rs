@@ -92,6 +92,23 @@ impl AlphaNetwork {
     /// Returns a random network of alpha neurons, where each neuron has the same number of inputs and outputs.
     /// The delays are randomly generated between the specified limits.
     /// The weights are initialized to NaN.
+    pub fn rand_fc(
+        num_neurons: usize,
+        lim_delays: (f64, f64),
+        seed: u64,
+    ) -> Result<Self, SNNError> {
+        let neurons = (0..num_neurons)
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
+            .collect();
+        let connections =
+            Connection::rand_fc(num_neurons, lim_delays, seed)?;
+
+        Ok(Self::new_from(neurons, connections))
+    }
+
+    /// Returns a random network of alpha neurons, where each neuron has the same number of inputs and outputs.
+    /// The delays are randomly generated between the specified limits.
+    /// The weights are initialized to NaN.
     pub fn rand_fin_fout(
         num_neurons: usize,
         num_inputs_outputs: usize,
