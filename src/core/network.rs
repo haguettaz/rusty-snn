@@ -1,6 +1,6 @@
 //! Network-related module.
 use core::f64;
-use itertools::{izip, Itertools};
+use itertools::izip;
 use lazy_static::lazy_static;
 use log;
 use rand::{rngs::StdRng, SeedableRng};
@@ -152,7 +152,8 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        let source_ids = (0..num_neurons).flat_map(|source_id| std::iter::repeat(source_id).take(num_neurons));
+        let source_ids =
+            (0..num_neurons).flat_map(|source_id| std::iter::repeat(source_id).take(num_neurons));
         let target_ids = (0..num_neurons).cycle();
         let weights = std::iter::repeat(0.0);
         let delays = Self::rand_delays(lim_delays, seed)?;
