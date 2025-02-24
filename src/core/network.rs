@@ -153,30 +153,6 @@ impl Connection {
         lim_delays: (f64, f64),
         seed: u64,
     ) -> Result<Vec<Connection>, SNNError> {
-        // if lim_delays.0 < 0.0 {
-        //     return Err(SNNError::InvalidParameter(
-        //         "Connection delay must be non-negative".to_string(),
-        //     ));
-        // }
-        // let mut delay_rng = StdRng::seed_from_u64(seed);
-        // let delay_dist = Uniform::new_inclusive(lim_delays.0, lim_delays.1).map_err(|e| {
-        //     SNNError::InvalidParameter(format!("Invalid delay distribution: {}", e))
-        // })?;
-
-        // let connections: Vec<Connection> = izip!(
-        //     (lim_neurons_ids.0..lim_neurons_ids.1)
-        //         .cartesian_product(lim_neurons_ids.0..lim_neurons_ids.1),
-        //     delay_dist.sample_iter(&mut delay_rng)
-        // )
-        // .map(|((source_id, target_id), delay)| {
-        //     Connection::new(source_id, target_id, f64::NAN, delay)
-        // })
-        // .collect();
-
-        // Ok(connections)
-
-
-
         let source_ids = (0..num_neurons).flat_map(|source_id| std::iter::repeat(source_id).take(num_neurons));
         let target_ids = (0..num_neurons).cycle();
         let weights = std::iter::repeat(0.0);
