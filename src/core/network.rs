@@ -147,7 +147,6 @@ impl Connection {
     }
 
     /// A random collection of connections between neurons, where every neuron is connected to every other neuron (including itself).
-    #[allow(unused_variables)]
     pub fn rand_fc(
         num_neurons: usize,
         lim_delays: (f64, f64),
