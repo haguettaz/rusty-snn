@@ -84,12 +84,11 @@ impl Connection {
         target_ids: impl Iterator<Item = usize>,
         weights: impl Iterator<Item = f64>,
         delays: impl Iterator<Item = f64>,
-    ) -> Vec<Connection> {
+    ) -> impl Iterator<Item = Connection> {
         izip!(source_ids, target_ids, weights, delays)
             .map(|(source_id, target_id, weight, delay)| {
                 Connection::new(source_id, target_id, weight, delay)
             })
-            .collect()
     }
 
     /// A random collection of connections between neurons, where every neurons has the same number of inputs.
@@ -99,14 +98,14 @@ impl Connection {
         lim_target_ids: (usize, usize),
         lim_delays: (f64, f64),
         seed: u64,
-    ) -> Result<Vec<Connection>, SNNError> {
+    ) -> Result<impl Iterator<Item = Connection>, SNNError> {
         let source_ids = Self::rand_ids(lim_source_ids, seed)?;
         let target_ids = (lim_target_ids.0..lim_target_ids.1)
-            .flat_map(|target_id| std::iter::repeat(target_id).take(num_inputs));
+            .flat_map(move |target_id| std::iter::repeat(target_id).take(num_inputs));
         let weights = std::iter::repeat(0.0);
         let delays = Self::rand_delays(lim_delays, seed)?;
 
-        let connections: Vec<Connection> =
+        let connections =
             Self::generate_connections(source_ids, target_ids, weights, delays);
 
         Ok(connections)
@@ -119,46 +118,46 @@ impl Connection {
         lim_target_ids: (usize, usize),
         lim_delays: (f64, f64),
         seed: u64,
-    ) -> Result<Vec<Connection>, SNNError> {
+    ) -> Result<impl Iterator<Item = Connection>, SNNError> {
         let source_ids = (lim_source_ids.0..lim_source_ids.1)
-            .flat_map(|source_id| std::iter::repeat(source_id).take(num_outputs));
+            .flat_map(move |source_id| std::iter::repeat(source_id).take(num_outputs));
         let target_ids = Self::rand_ids(lim_target_ids, seed)?;
         let weights = std::iter::repeat(0.0);
         let delays = Self::rand_delays(lim_delays, seed)?;
 
-        let connections: Vec<Connection> =
+        let connections =
             Self::generate_connections(source_ids, target_ids, weights, delays);
 
         Ok(connections)
     }
 
-    /// A random collection of connections between neurons, where every neurons has the same number of inputs and outputs.
-    #[allow(unused_variables)]
-    pub fn rand_fin_fout(
-        num_neurons: usize,
-        num_inputs_outputs: usize,
-        lim_delays: (f64, f64),
-        seed: u64,
-    ) -> Result<Vec<Connection>, SNNError> {
-        // FIXME: Implement random connection generation with fixed in/out degree
-        // Should follow similar pattern to rand_fin and rand_fout but ensure
-        // each neuron has exactly num_inputs_outputs inputs and outputs
-        todo!()
-    }
+    // /// A random collection of connections between neurons, where every neurons has the same number of inputs and outputs.
+    // #[allow(unused_variables)]
+    // pub fn rand_fin_fout(
+    //     num_neurons: usize,
+    //     num_inputs_outputs: usize,
+    //     lim_delays: (f64, f64),
+    //     seed: u64,
+    // ) -> Result<impl Iterator<Item = Connection>, SNNError> {
+    //     // FIXME: Implement random connection generation with fixed in/out degree
+    //     // Should follow similar pattern to rand_fin and rand_fout but ensure
+    //     // each neuron has exactly num_inputs_outputs inputs and outputs
+    //     todo!()
+    // }
 
     /// A random collection of connections between neurons, where every neuron is connected to every other neuron (including itself).
     pub fn rand_fc(
         num_neurons: usize,
         lim_delays: (f64, f64),
         seed: u64,
-    ) -> Result<Vec<Connection>, SNNError> {
+    ) -> Result<impl Iterator<Item = Connection>, SNNError> {
         let source_ids =
-            (0..num_neurons).flat_map(|source_id| std::iter::repeat(source_id).take(num_neurons));
+            (0..num_neurons).flat_map(move |source_id| std::iter::repeat(source_id).take(num_neurons));
         let target_ids = (0..num_neurons).cycle();
         let weights = std::iter::repeat(0.0);
         let delays = Self::rand_delays(lim_delays, seed)?;
 
-        let connections: Vec<Connection> =
+        let connections =
             Self::generate_connections(source_ids, target_ids, weights, delays);
 
         Ok(connections)
@@ -488,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_connection_rand_fin() {
-        let connections = Connection::rand_fin(2, (0, 2), (0, 2), (0.0, 1.0), 0).unwrap();
+        let connections: Vec<Connection> = Connection::rand_fin(2, (0, 2), (0, 2), (0.0, 1.0), 0).unwrap().collect();
         assert_eq!(connections.len(), 4);
         assert_eq!(connections.iter().filter(|c| c.target_id == 0).count(), 2);
         assert_eq!(connections.iter().filter(|c| c.target_id == 1).count(), 2);
@@ -497,7 +496,7 @@ mod tests {
 
     #[test]
     fn test_connection_rand_fout() {
-        let connections = Connection::rand_fout(2, (0, 2), (0, 2), (0.0, 1.0), 0).unwrap();
+        let connections: Vec<Connection> = Connection::rand_fout(2, (0, 2), (0, 2), (0.0, 1.0), 0).unwrap().collect();
         assert_eq!(connections.len(), 4);
         assert_eq!(connections.iter().filter(|c| c.source_id == 0).count(), 2);
         assert_eq!(connections.iter().filter(|c| c.source_id == 1).count(), 2);
@@ -506,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_connection_rand_fc() {
-        let connections = Connection::rand_fc(2, (0.0, 1.0), 0).unwrap();
+        let connections: Vec<Connection> = Connection::rand_fc(2, (0.0, 1.0), 0).unwrap().collect();
         assert_eq!(connections.len(), 4);
         assert_eq!(
             connections

@@ -31,7 +31,8 @@ impl AlphaNetwork {
     }
 
     /// Creates a new network of alpha neurons with the provided neurons and connections.
-    pub fn new_from(neurons: Vec<AlphaNeuron>, connections: Vec<Connection>) -> Self {
+    pub fn new_from_iter(neurons: impl Iterator<Item = AlphaNeuron>, connections: impl Iterator<Item = Connection>) -> Self {
+        let neurons= neurons.collect();
         let mut network = AlphaNetwork {
             neurons,
             min_delays: None,
@@ -53,9 +54,7 @@ impl AlphaNetwork {
         seed: u64,
     ) -> Result<Self, SNNError> {
         let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
-            .collect();
-        let connections = Connection::rand_fin(
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64));        let connections = Connection::rand_fin(
             num_inputs,
             (0, num_neurons),
             (0, num_neurons),
@@ -63,7 +62,7 @@ impl AlphaNetwork {
             seed,
         )?;
 
-        Ok(Self::new_from(neurons, connections))
+        Ok(Self::new_from_iter(neurons, connections))
     }
 
     /// Returns a random network of alpha neurons, where each neuron has the same number of outputs.
@@ -77,8 +76,7 @@ impl AlphaNetwork {
         seed: u64,
     ) -> Result<Self, SNNError> {
         let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
-            .collect();
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64));
         let connections = Connection::rand_fout(
             num_outputs,
             (0, num_neurons),
@@ -86,7 +84,7 @@ impl AlphaNetwork {
             lim_delays,
             seed,
         )?;
-        Ok(Self::new_from(neurons, connections))
+        Ok(Self::new_from_iter(neurons, connections))
     }
 
     /// Returns a random network of alpha neurons, where each neuron has the same number of inputs and outputs.
@@ -98,31 +96,30 @@ impl AlphaNetwork {
         seed: u64,
     ) -> Result<Self, SNNError> {
         let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
-            .collect();
+            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64));
         let connections =
             Connection::rand_fc(num_neurons, lim_delays, seed)?;
 
-        Ok(Self::new_from(neurons, connections))
+        Ok(Self::new_from_iter(neurons, connections))
     }
 
-    /// Returns a random network of alpha neurons, where each neuron has the same number of inputs and outputs.
-    /// The delays are randomly generated between the specified limits.
-    /// The weights are initialized to NaN.
-    pub fn rand_fin_fout(
-        num_neurons: usize,
-        num_inputs_outputs: usize,
-        lim_delays: (f64, f64),
-        seed: u64,
-    ) -> Result<Self, SNNError> {
-        let neurons = (0..num_neurons)
-            .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
-            .collect();
-        let connections =
-            Connection::rand_fin_fout(num_neurons, num_inputs_outputs, lim_delays, seed)?;
+    // /// Returns a random network of alpha neurons, where each neuron has the same number of inputs and outputs.
+    // /// The delays are randomly generated between the specified limits.
+    // /// The weights are initialized to NaN.
+    // pub fn rand_fin_fout(
+    //     num_neurons: usize,
+    //     num_inputs_outputs: usize,
+    //     lim_delays: (f64, f64),
+    //     seed: u64,
+    // ) -> Result<Self, SNNError> {
+    //     let neurons = (0..num_neurons)
+    //         .map(|neuron_id| AlphaNeuron::new_empty(neuron_id, seed + neuron_id as u64))
+    //         .collect();
+    //     let connections =
+    //         Connection::rand_fin_fout(num_neurons, num_inputs_outputs, lim_delays, seed)?;
 
-        Ok(Self::new_from(neurons, connections))
-    }
+    //     Ok(Self::new_from(neurons, connections))
+    // }
 
     /// Save the network to a gzip-compressed file.
     /// The network is serialized to JSON and compressed using gzip compression.
