@@ -189,22 +189,11 @@ pub trait Neuron: Sync + Send {
                 ))
             })?;
             match status {
-                Status::Optimal => {}
-                Status::InfOrUnbd | Status::Infeasible | Status::Unbounded => {
-                    log::error!("Neuron {}: the model is infeasible", self.id(),);
-                    return Err(SNNError::OptimizationError(format!(
-                        "Neuron {}: the model is infeasible",
-                        self.id(),
-                    )));
-                }
+                grb::Status::Optimal => (),
                 _ => {
-                    log::error!(
-                        "Neuron {}: unexpected error while optimizing... ({:?}). This is typically due to numerical issues encountered at the edge of feasibility.",
-                        self.id(),
-                        status
-                    );
+                    log::error!("Neuron {}: Optimization failed ({:?})", self.id(), status);
                     return Err(SNNError::OptimizationError(format!(
-                        "Neuron {}: unexpected error while optimizing... ({:?}). This is typically due to numerical issues encountered at the edge of feasibility.",
+                        "Neuron {}: Optimization failed ({:?})",
                         self.id(),
                         status
                     )));
@@ -217,7 +206,7 @@ pub trait Neuron: Sync + Send {
                     .get_obj_attr(grb::attribute::VarDoubleAttr::X, weight)
                     .map_err(|e| {
                         SNNError::OptimizationError(format!(
-                            "Error while optimizing neuron {}: {}",
+                            "Neuron {}: Optimization failed ({})",
                             self.id(),
                             e
                         ))
@@ -299,7 +288,7 @@ pub trait Neuron: Sync + Send {
         }
 
         Err(SNNError::ConvergenceError(format!(
-            "Neuron {}: optimization failed... Maximum number of iterations reached",
+            "Neuron {}: Optimization failed... Maximum number of iterations reached",
             self.id()
         )))
     }
