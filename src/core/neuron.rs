@@ -156,10 +156,12 @@ pub trait Neuron: Sync + Send {
         optim::set_grb_objective(&mut model, &weights, objective)?;
 
         // Set equality constraints for each firing time
+        let mut num_eq_cstrs = 0;
         for (time_template, input_spike_train) in
             time_templates.iter().zip(input_spike_trains.iter())
         {
             for time in time_template.ftimes.iter() {
+                num_eq_cstrs += 1;
                 self.add_threshold_crossing_potential_cstr(
                     &mut model,
                     &weights,
@@ -169,6 +171,7 @@ pub trait Neuron: Sync + Send {
             }
         }
 
+        let mut num_ineq_cstrs = 0;
         for it in 0..optim::MAX_ITER {
             // For fixed constraints, determine the optimal weights
             log::trace!("Neuron {}: optimize weights...", self.id());
@@ -234,55 +237,42 @@ pub trait Neuron: Sync + Send {
                 min_slope,
             )?;
             log::trace!("Neuron {}: {} new constraints added", self.id(), new_cstrs);
+            num_ineq_cstrs += new_cstrs;
 
             if new_cstrs == 0 {
                 return match objective {
                     Objective::None => {
-                        let num_cstrs = model
+                        let num_grb_cstrs = model
                             .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
                         log::info!(
-                            "Neuron {}: Optimization succeeded in {} iterations! All {} (time) constraints are satisfied.",
+                            "Neuron {}: Optimization succeeded in {} iterations! Time equality constraints: {}. Time inequality constraints: {}. (Number of constraints from Gurobi model: {})",
                             self.id(),
                             it,
-                            num_cstrs
+                            num_eq_cstrs,
+                            num_ineq_cstrs,
+                            num_grb_cstrs
                         );
                         Ok(())
                     }
-                    Objective::L2 => {
-                        let num_cstrs = model
+                    _ => {
+                        let num_grb_cstrs = model
                             .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
                         let obj_val = model
                             .get_attr(grb::attribute::ModelDoubleAttr::ObjVal)
                             .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
                         log::info!(
-                            "Neuron {}: Optimization succeeded in {} iterations!! All {} (time) constraints are satisfied for a final cost of {}.",
+                            "Neuron {}: Optimization succeeded in {} iterations! Cost: {}. Time equality constraints: {}. Time inequality constraints: {}. (Number of constraints from Gurobi model: {})",
                             self.id(),
                             it,
-                            num_cstrs, obj_val
-                        );
-                        Ok(())
-                    }
-                    Objective::L1 | Objective::LInfinity => {
-                        let num_cstrs = model
-                            .get_attr(grb::attribute::ModelIntAttr::NumConstrs)
-                            .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-                        let obj_val = model
-                            .get_attr(grb::attribute::ModelDoubleAttr::ObjVal)
-                            .map_err(|e| SNNError::OptimizationError(e.to_string()))?;
-                        log::info!(
-                            "Neuron {}: Optimization succeeded in {} iterations! All {} (time) constraints are satisfied for a final cost of {}.",
-                            self.id(),
-                            it,
-                            num_cstrs - (self.num_inputs() as i32 * 2),
                             obj_val,
+                            num_eq_cstrs,
+                            num_ineq_cstrs,
+                            num_grb_cstrs
                         );
                         Ok(())
                     }
-                    _ => Err(SNNError::NotImplemented(
-                        "Objective not implemented".to_string(),
-                    )),
                 };
             }
         }
