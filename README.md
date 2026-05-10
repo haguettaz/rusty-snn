@@ -42,3 +42,4 @@ An example of how to use the library is provided in the `examples` directory.
 - [Klabnik and Nichols, *The Rust Programming Language*, 2021.](https://doc.rust-lang.org/book/)
 
 [^1]: Read as concurrency or parallelism.
+
